@@ -729,11 +729,12 @@ private:
             Pt nose = projectHead3D(0.0f, 8.0f, 29.0f, yawRad, pitchRad);
             SolidBrush pink(Color(255, 232, 151, 164));
             g.FillEllipse(&pink, nose.x - 2.7f, nose.y - 1.8f, 5.4f, 4.0f);
-            Pen brow(Color(230, 86, 91, 103), 2.5f);
+            // Fine, lifted brow strokes: keep the stubborn expression without merging
+            // into the blue eyes or the grey cheek patches at desktop scale.
+            Pen brow(Color(178, 105, 111, 122), 1.35f);
             brow.SetStartCap(LineCapRound); brow.SetEndCap(LineCapRound);
-            // Slightly lowered inner brow corners give the cat its stubborn, unimpressed look.
-            g.DrawLine(&brow, -28.0f, -15.0f, -9.0f, -10.5f);
-            g.DrawLine(&brow, 9.0f, -10.5f, 28.0f, -15.0f);
+            g.DrawLine(&brow, -27.0f, -21.5f, -13.0f, -18.0f);
+            g.DrawLine(&brow, 13.0f, -18.0f, 27.0f, -21.5f);
             Pen mouth(Color(175, 105, 111, 122), 1.15f);
             mouth.SetStartCap(LineCapRound); mouth.SetEndCap(LineCapRound);
             g.DrawLine(&mouth, nose.x, nose.y + 2.0f, nose.x, nose.y + 5.0f);
