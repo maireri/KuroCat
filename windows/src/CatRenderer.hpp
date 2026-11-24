@@ -5,6 +5,7 @@
 #include <gdiplus.h>
 #include <cmath>
 #include <vector>
+#include <string>
 #include <algorithm>
 #include "CatPhysics.hpp"
 #include "../../shared/CoatPatterns.hpp"
@@ -117,9 +118,9 @@ private:
             wchar_t exePath[MAX_PATH] = {};
             DWORD n = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
             if (n == 0 || n >= MAX_PATH) return nullptr;
-            wchar_t* slash = wcsrchr(exePath, L'\\\\');
+            wchar_t* slash = wcsrchr(exePath, L'\\');
             if (!slash) return nullptr;
-            slash[1] = L'\\0';
+            slash[1] = L'\0';
             std::wstring assetPath(exePath);
             assetPath += L"KuroCat-Ragdoll-Sitting.png";
             Gdiplus::Image* loaded = new Gdiplus::Image(assetPath.c_str());
