@@ -34,7 +34,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: KuroCat-Windows-x64
-          path: windows/KuroCat.exe
+          path: |
+            windows/KuroCat.exe
+            windows/KuroCat-Ragdoll-Sitting.png
 
   build-macos:
     runs-on: macos-latest
