@@ -91,29 +91,7 @@ public:
     }
 
 private:
-    static Gdiplus::Image* ragdollArtwork() {
-        static Gdiplus::Image* image = []() -> Gdiplus::Image* {
-            wchar_t exePath[MAX_PATH] = {};
-            DWORD n = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-            if (n == 0 || n >= MAX_PATH) return nullptr;
-            wchar_t* slash = wcsrchr(exePath, L'\\');
-            if (!slash) return nullptr;
-            slash[1] = L'\0';
-            std::wstring assetPath(exePath);
-            assetPath += L"KuroCat-Ragdoll-Sitting.png";
-            Gdiplus::Image* loaded = new Gdiplus::Image(assetPath.c_str());
-            if (loaded->GetLastStatus() != Gdiplus::Ok) { delete loaded; return nullptr; }
-            return loaded;
-        }();
-        return image;
-    }
-
     static Gdiplus::Color catBlack(BYTE a = 255)      { return Gdiplus::Color(a, 22, 22, 24); }
-    static Gdiplus::Color contourMint(BYTE a = 194)   { return Gdiplus::Color(a, 209, 235, 227); }
-    static Gdiplus::Color whiskerWhite(BYTE a = 174)  { return Gdiplus::Color(a, 224, 230, 235); }
-    static Gdiplus::Color siameseCream(BYTE a = 255)   { return Gdiplus::Color(a, 246, 239, 228); }
-    static Gdiplus::Color siameseLatte(BYTE a = 255)   { return Gdiplus::Color(a, 234, 219, 200); }
-    static     static Gdiplus::Color catBlack(BYTE a = 255)      { return Gdiplus::Color(a, 22, 22, 24); }
     static Gdiplus::Color contourMint(BYTE a = 194)   { return Gdiplus::Color(a, 209, 235, 227); }
     static Gdiplus::Color whiskerWhite(BYTE a = 174)  { return Gdiplus::Color(a, 224, 230, 235); }
     static Gdiplus::Color siameseCream(BYTE a = 255)   { return Gdiplus::Color(a, 246, 239, 228); }
