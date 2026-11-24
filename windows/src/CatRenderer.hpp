@@ -20,6 +20,13 @@ public:
     static constexpr float RadToDeg = 57.2957795f;
 
     static CatHitZone hitTest(Pt p, const CatPhysics& physics, CatCoatTheme coat = CatCoatTheme::ClassicBlack) {
+        if (coat == CatCoatTheme::Ragdoll) {
+            float hx = p.x - 180.0f, hy = p.y - 88.0f;
+            if ((hx * hx) / (48.0f * 48.0f) + (hy * hy) / (48.0f * 48.0f) <= 1.0f) return CatHitZone::Head;
+            float bx = p.x - 180.0f, by = p.y - 222.0f;
+            if ((bx * bx) / (112.0f * 112.0f) + (by * by) / (88.0f * 88.0f) <= 1.0f) return CatHitZone::Body;
+            return CatHitZone::None;
+        }
         float cx = CatPhysics::SeatAnchor.x + physics.bodyShiftX.value;
         float breath = std::sin(physics.time * 2.1f) * 1.6f;
         float siameseLift = (coat == CatCoatTheme::Siamese) ? -3.0f : 0.0f;
@@ -43,6 +50,21 @@ public:
         g.SetSmoothingMode(SmoothingModeAntiAlias);
         g.SetPixelOffsetMode(PixelOffsetModeHighQuality);
         g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
+
+        // The ragdoll coat uses the approved high-detail transparent illustration.
+        // Keep the existing mouse, keyboard and floating interaction overlays in front.
+        if (settings.coatTheme == CatCoatTheme::Ragdoll) {
+            Image* art = ragdollArtwork();
+            if (art) {
+                g.DrawImage(art, RectF(45.0f, 8.0f, 270.0f, 300.0f),
+                    0.0f, 0.0f, (REAL)art->GetWidth(), (REAL)art->GetHeight(), UnitPixel);
+                drawMouse(g, physics, settings.keyboardTheme);
+                drawKeyboard(g, physics, settings.keyboardTheme, settings.eyeTheme, settings.showKeyLegends);
+                if (!physics.floatingKeycaps.empty()) drawFloatingKeycaps(g, physics);
+                drawSparkles(g, physics, settings.eyeTheme);
+                return;
+            }
+        }
 
         float breath = std::sin(physics.time * 2.1f) * 1.6f;
         float seatX = CatPhysics::SeatAnchor.x + physics.bodyShiftX.value;
@@ -90,6 +112,23 @@ public:
     }
 
 private:
+    static Gdiplus::Image* ragdollArtwork() {
+        static Gdiplus::Image* image = []() -> Gdiplus::Image* {
+            wchar_t exePath[MAX_PATH] = {};
+            DWORD n = GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+            if (n == 0 || n >= MAX_PATH) return nullptr;
+            wchar_t* slash = wcsrchr(exePath, L'\\\\');
+            if (!slash) return nullptr;
+            slash[1] = L'\\0';
+            std::wstring assetPath(exePath);
+            assetPath += L"KuroCat-Ragdoll-Sitting.png";
+            Gdiplus::Image* loaded = new Gdiplus::Image(assetPath.c_str());
+            if (loaded->GetLastStatus() != Gdiplus::Ok) { delete loaded; return nullptr; }
+            return loaded;
+        }();
+        return image;
+    }
+
     static Gdiplus::Color catBlack(BYTE a = 255)      { return Gdiplus::Color(a, 22, 22, 24); }
     static Gdiplus::Color contourMint(BYTE a = 194)   { return Gdiplus::Color(a, 209, 235, 227); }
     static Gdiplus::Color whiskerWhite(BYTE a = 174)  { return Gdiplus::Color(a, 224, 230, 235); }
