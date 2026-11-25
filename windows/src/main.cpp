@@ -78,6 +78,7 @@ enum MenuCmd : UINT {
     CMD_COAT_SHORTHAIR,
     CMD_COAT_ORANGE_WHITE,
     CMD_COAT_RAGDOLL,
+    CMD_COAT_MAMESHIBA,
     CMD_KB_MILK,
     CMD_KB_HACKER,
     CMD_KB_RETRO,
@@ -902,7 +903,9 @@ void showContextMenu(AppState& app, POINT screenPt) {
     AppendMenuW(coatMenu, MF_STRING | (app.settings.coatTheme == CatCoatTheme::Shorthair ? MF_CHECKED : 0), CMD_COAT_SHORTHAIR, L"美短（银虎斑加白）");
     AppendMenuW(coatMenu, MF_STRING | (app.settings.coatTheme == CatCoatTheme::OrangeWhite ? MF_CHECKED : 0), CMD_COAT_ORANGE_WHITE, L"橘白猫");
     AppendMenuW(coatMenu, MF_STRING | (app.settings.coatTheme == CatCoatTheme::Ragdoll ? MF_CHECKED : 0), CMD_COAT_RAGDOLL, L"灰白布偶猫（犟种版）");
-    AppendMenuW(menu, MF_POPUP, (UINT_PTR)coatMenu, L"\u732B\u54AA\u76AE\u80A4");
+    AppendMenuW(coatMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(coatMenu, MF_STRING | (app.settings.coatTheme == CatCoatTheme::MameShiba ? MF_CHECKED : 0), CMD_COAT_MAMESHIBA, L"豆柴 🐕");
+    AppendMenuW(menu, MF_POPUP, (UINT_PTR)coatMenu, L"宠物形象");
 
     // Keyboard Theme submenu
     HMENU kbMenu = CreatePopupMenu();
@@ -1012,6 +1015,11 @@ void showContextMenu(AppState& app, POINT screenPt) {
         case CMD_COAT_RAGDOLL:
             app.settings.coatTheme = CatCoatTheme::Ragdoll;
             app.settings.eyeTheme = EyeColorTheme::SiameseBlue;
+            app.settings.saveToRegistry();
+            break;
+        case CMD_COAT_MAMESHIBA:
+            app.settings.coatTheme = CatCoatTheme::MameShiba;
+            app.settings.eyeTheme = EyeColorTheme::WarmAmber;
             app.settings.saveToRegistry();
             break;
         case CMD_EYE_SOFT_AMBER: app.settings.eyeTheme = EyeColorTheme::SoftAmber; app.settings.saveToRegistry(); break;
