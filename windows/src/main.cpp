@@ -58,7 +58,7 @@ constexpr const wchar_t* TRAY_OWNER_CLASS = L"KuroCatTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"KuroCatOverlayWindowClass";
 constexpr double FRAME_INTERVAL = 1.0 / 60.0;
 constexpr const wchar_t* UPDATE_PAGE_URL = L"https://github.com/maireri/KuroCat/releases";
-constexpr const wchar_t* UPDATE_WIN_EXE_PATH = L"/downloads/KuroCat-Windows-x64.exe?sharecode=JVAABIVZ7L";
+constexpr const wchar_t* UPDATE_WIN_EXE_PATH = L"/maireri/KuroCat/releases/latest/download/KuroCat-Windows-x64.exe";
 constexpr UINT WM_TRAYICON = WM_APP + 1;
 constexpr UINT WM_WAKE_EXISTING = WM_APP + 2;
 constexpr UINT WM_UPDATE_CHECK_DONE = WM_APP + 3;
@@ -586,14 +586,14 @@ DWORD WINAPI updateCheckThreadProc(LPVOID param) {
     HINTERNET hSession = openWinHttpSession(ua);
     if (hSession) {
         WinHttpSetTimeouts(hSession, 8000, 8000, 8000, 8000);
-        HINTERNET hConnect = WinHttpConnect(hSession, L"kurocat-download.app.workbuddy.host", INTERNET_DEFAULT_HTTPS_PORT, 0);
+        HINTERNET hConnect = WinHttpConnect(hSession, L"github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
         if (hConnect) {
-            std::string body = fetchWorkBuddyPath(hConnect, L"/version.json?sharecode=JVAABIVZ7L");
+            std::string body = fetchWorkBuddyPath(hConnect, L"/maireri/KuroCat/releases/latest");
             std::string tag = extractJsonStringField(body, "tag_name");
             std::string url = extractJsonStringField(body, "html_url");
 
             if (tag.empty()) {
-                std::string html = fetchWorkBuddyPath(hConnect, L"/?sharecode=JVAABIVZ7L");
+                std::string html = fetchWorkBuddyPath(hConnect, L"/maireri/KuroCat/releases");
                 tag = extractVersionFromHtml(html);
             }
 
@@ -615,17 +615,10 @@ DWORD WINAPI updateCheckThreadProc(LPVOID param) {
 }
 
 void startAsyncUpdateCheck(HWND notifyHwnd, bool manual, int delayMs = 0) {
-    // Do not query or install the original author's upstream build: it omits the fork's Shiba character.
-    // Manual "check updates" opens this fork's own release page instead.
+    (void)notifyHwnd;
+    (void)delayMs;
+    // This fork checks its own releases manually and never installs upstream binaries.
     if (manual) ShellExecuteW(nullptr, L"open", UPDATE_PAGE_URL, nullptr, nullptr, SW_SHOWNORMAL);
-    return;
-    auto* params = new UpdateCheckThreadParams{ notifyHwnd, manual, delayMs };
-    HANDLE hThread = CreateThread(nullptr, 0, updateCheckThreadProc, params, 0, nullptr);
-    if (hThread) {
-        CloseHandle(hThread);
-    } else {
-        delete params;
-    }
 }
 
 struct UpdateDownloadResult {
@@ -669,7 +662,7 @@ DWORD WINAPI updateDownloadThreadProc(LPVOID param) {
     HINTERNET hSession = openWinHttpSession(ua);
     if (hSession) {
         WinHttpSetTimeouts(hSession, 10000, 10000, 30000, 60000);
-        HINTERNET hConnect = WinHttpConnect(hSession, L"kurocat-download.app.workbuddy.host", INTERNET_DEFAULT_HTTPS_PORT, 0);
+        HINTERNET hConnect = WinHttpConnect(hSession, L"github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
         if (hConnect) {
             exeBytes = fetchWorkBuddyPath(hConnect, UPDATE_WIN_EXE_PATH);
             WinHttpCloseHandle(hConnect);
