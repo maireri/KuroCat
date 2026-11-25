@@ -115,7 +115,7 @@ for state in [8, 9] {
  let dog = pixels(frame(.mameShiba,.referenceHazel,state))
  precondition(dog.filter{$0 != 0}.count > 10000, "Empty Mame Shiba render")
 }
-print("PASS: feline shoulder tests and Mame Shiba face stability across typing/mouse actions")
+print("PASS: feline shoulder tests and non-empty Mame Shiba render")
 
 precondition(EyeColorTheme.saved("淡金青绿（参考图）") == .referenceHazel)
 for eye in EyeColorTheme.allCases {precondition(EyeColorTheme.saved(eye.rawValue) == eye)}
