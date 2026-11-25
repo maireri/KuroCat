@@ -241,7 +241,7 @@ enum CatRenderer {
             return
         }
 
-        let coatIsMameShiba = settings.customSkin.isEmpty && settings.coatTheme == .mameShiba
+        let coatIsMameShiba = settings.coatTheme == .mameShiba && skin.id == "builtin:6"
 
         // Universal Scruff-Lifted Drag Pose (ALL non-Douni cat skins keep their own authentic KuroCat face/head/ears/markings in front,
         // with scruff-lifted arched neck/back, 4 dangling swinging paws, and limp drooping tail!)
