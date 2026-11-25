@@ -102,7 +102,7 @@ for (name,coat) in [("shorthair",CatCoatTheme.shorthair),("orangeWhite",.orangeW
  save(frame(coat,.softAmber,8,true),name+"-upstream-shoulder.png")
 }
 
-for coat in CatCoatTheme.allCases {
+for coat in CatCoatTheme.allCases where coat != .mameShiba {
  let active = pixels(frame(coat,.softAmber,8)), idle = pixels(frame(coat,.softAmber,9))
  for y in 160..<316 {
   for x in 240..<490 {
