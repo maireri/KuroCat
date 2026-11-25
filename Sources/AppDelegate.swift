@@ -66,10 +66,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         startRenderLoop()
         startWindowWatchdog()
 
-        // Auto-check GitHub Releases for updates shortly after launch
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
-            self?.checkForUpdates(manual: false)
-        }
+        // This maintained fork uses its own release channel. Never auto-install upstream builds,
+        // because they do not contain the Mame Shiba character.
+
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -908,16 +907,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Auto Update Checker & In-App Self-Updater
 
-    private static let updatePageURLString = "https://kurocat-download.app.workbuddy.host/?sharecode=JVAABIVZ7L"
-    private static let updateVersionJSONURLString = "https://kurocat-download.app.workbuddy.host/version.json?sharecode=JVAABIVZ7L"
-    private static let defaultMacAssetURLString = "https://kurocat-download.app.workbuddy.host/downloads/KuroCat-macOS-universal.zip?sharecode=JVAABIVZ7L"
+    private static let updatePageURLString = "https://github.com/maireri/KuroCat/releases"
+    private static let updateVersionJSONURLString = "https://api.github.com/repos/maireri/KuroCat/releases/latest"
+    private static let defaultMacAssetURLString = "https://github.com/maireri/KuroCat/releases/latest/download/KuroCat-macOS-universal.zip"
 
     @objc private func manualCheckForUpdates() {
-        checkForUpdates(manual: true)
+        if let url = URL(string: Self.updatePageURLString) { NSWorkspace.shared.open(url) }
     }
 
     @objc private func openUpdateDownload() {
-        performInAppUpdate()
+        if let url = URL(string: Self.updatePageURLString) { NSWorkspace.shared.open(url) }
     }
 
     private func parseUpdateInfo(from data: Data) -> (tag: String, pageURL: URL?, assetURL: URL?)? {
