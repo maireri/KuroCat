@@ -100,6 +100,16 @@ enum CatRenderer {
         // 2. Mini Angled 65% Mechanical Keyboard + Dynamic Keycap Glow
         drawKeyboard(in: ctx, physics: physics, theme: settings.keyboardTheme, eyeTheme: settings.eyeTheme, showLegends: settings.showKeyLegends)
 
+        // Separate dog character; keyboard, physics, badges and interaction remain shared.
+        if coat == .mameShiba {
+            drawMameShiba(in: ctx, seatX: seatX, seatY: seatY, physics: physics)
+            if !physics.floatingKeycaps.isEmpty { drawFloatingKeycaps(in: ctx, physics: physics) }
+            drawSparkles(in: ctx, physics: physics, eyeTheme: settings.eyeTheme)
+            if showPermissionPill { drawPermissionPill(in: ctx, text: permissionPillText) }
+            ctx.restoreGState()
+            return
+        }
+
         // 3. Cat Tail (behind body)
         drawTail(in: ctx, seatX: seatX, seatY: seatY, physics: physics, coat: coat)
 
@@ -146,6 +156,111 @@ enum CatRenderer {
             drawPermissionPill(in: ctx, text: permissionPillText)
         }
 
+        ctx.restoreGState()
+    }
+
+    // MARK: - Mame Shiba (native KuroCat vector style)
+    private static func drawMameShiba(in ctx: CGContext, seatX: CGFloat, seatY: CGFloat, physics: CatPhysics) {
+        let orange = rgb(0xC9823F), deep = rgb(0x965A2D), cream = rgb(0xF7E9D2)
+        let outline = rgb(0x754A2D, 0.82), innerEar = rgb(0xB96F54)
+        let breath = sin(physics.time * 2.1) * 1.4
+        let head = CGPoint(x: seatX + physics.bodyTilt.value * 30 + physics.headYaw.value * 6,
+                           y: 126 + physics.headOffsetY.value + physics.headPitch.value * 4.2 + breath)
+        ctx.saveGState()
+        // Curled Shiba tail behind the body.
+        let wag = sin(physics.tailPhase) * 3
+        ctx.setStrokeColor(deep.cgColor); ctx.setLineWidth(12); ctx.setLineCap(.round)
+        ctx.move(to: CGPoint(x: seatX + 34, y: seatY - 42))
+        ctx.addCurve(to: CGPoint(x: seatX + 58, y: seatY - 78 + wag),
+                     control1: CGPoint(x: seatX + 72, y: seatY - 35),
+                     control2: CGPoint(x: seatX + 78, y: seatY - 83 + wag))
+        ctx.strokePath()
+        ctx.setStrokeColor(orange.cgColor); ctx.setLineWidth(7.5)
+        ctx.move(to: CGPoint(x: seatX + 34, y: seatY - 42))
+        ctx.addCurve(to: CGPoint(x: seatX + 58, y: seatY - 78 + wag),
+                     control1: CGPoint(x: seatX + 72, y: seatY - 35),
+                     control2: CGPoint(x: seatX + 78, y: seatY - 83 + wag))
+        ctx.strokePath()
+
+        // Compact seated body and cream chest bib.
+        ctx.setFillColor(NSColor(calibratedWhite: 0, alpha: 0.13).cgColor)
+        ctx.fillEllipse(in: CGRect(x: seatX - 49, y: seatY - 54, width: 98, height: 72))
+        ctx.setFillColor(orange.cgColor)
+        ctx.fillEllipse(in: CGRect(x: seatX - 47, y: seatY - 91 + breath, width: 94, height: 112))
+        ctx.setFillColor(cream.cgColor)
+        ctx.fillEllipse(in: CGRect(x: seatX - 26, y: seatY - 77 + breath, width: 52, height: 91))
+
+        // Short forelegs and paws follow the original typing springs.
+        let paws = [physics.leftPaw.point, physics.rightPaw.point]
+        for (i, paw) in paws.enumerated() {
+            let restX = i == 0 ? seatX - 20 : seatX + 20
+            let restY = i == 0 ? CatPhysics.leftPawRest.y : CatPhysics.rightPawRest.y
+            let x = restX + (paw.x - (i == 0 ? CatPhysics.leftPawRest.x : CatPhysics.rightPawRest.x)) * 0.65
+            let y = seatY + (paw.y - restY) * 0.38
+            ctx.setFillColor(orange.cgColor)
+            ctx.fillEllipse(in: CGRect(x: x - 10, y: seatY - 45, width: 20, height: max(28, y - seatY + 52)))
+            ctx.setFillColor(cream.cgColor)
+            ctx.fillEllipse(in: CGRect(x: x - 9, y: y - 8, width: 18, height: 13))
+        }
+
+        // Head, upright rounded-triangle ears, and classic Shiba cream markings.
+        ctx.saveGState()
+        ctx.translateBy(x: head.x, y: head.y)
+        ctx.rotate(by: physics.headTilt.value)
+        for sign: CGFloat in [-1, 1] {
+            let ear = CGMutablePath()
+            ear.move(to: CGPoint(x: sign * 17, y: -25))
+            ear.addQuadCurve(to: CGPoint(x: sign * 34, y: -51), control: CGPoint(x: sign * 27, y: -30))
+            ear.addQuadCurve(to: CGPoint(x: sign * 43, y: -22), control: CGPoint(x: sign * 42, y: -48))
+            ear.addQuadCurve(to: CGPoint(x: sign * 17, y: -25), control: CGPoint(x: sign * 31, y: -14))
+            ctx.setFillColor(orange.cgColor); ctx.addPath(ear); ctx.fillPath()
+            ctx.setStrokeColor(outline.cgColor); ctx.setLineWidth(1.4); ctx.addPath(ear); ctx.strokePath()
+            let inner = CGMutablePath()
+            inner.move(to: CGPoint(x: sign * 24, y: -27))
+            inner.addQuadCurve(to: CGPoint(x: sign * 33, y: -43), control: CGPoint(x: sign * 31, y: -30))
+            inner.addQuadCurve(to: CGPoint(x: sign * 37, y: -27), control: CGPoint(x: sign * 38, y: -40))
+            inner.closeSubpath()
+            ctx.setFillColor(innerEar.cgColor); ctx.addPath(inner); ctx.fillPath()
+        }
+        ctx.setFillColor(orange.cgColor)
+        ctx.fillEllipse(in: CGRect(x: -44, y: -37, width: 88, height: 77))
+        ctx.setStrokeColor(outline.cgColor); ctx.setLineWidth(1.5)
+        ctx.strokeEllipse(in: CGRect(x: -44, y: -37, width: 88, height: 77))
+        ctx.setFillColor(cream.cgColor)
+        ctx.fillEllipse(in: CGRect(x: -34, y: -3, width: 29, height: 25))
+        ctx.fillEllipse(in: CGRect(x: 5, y: -3, width: 29, height: 25))
+        ctx.fillEllipse(in: CGRect(x: -18, y: 5, width: 36, height: 22))
+
+        // Soft dark eyes; petting closes them just like the cat character.
+        let closed = physics.effectiveEyeClosure
+        for sign: CGFloat in [-1, 1] {
+            let x = sign * 17
+            ctx.setFillColor(deep.cgColor)
+            if closed > 0.78 {
+                ctx.setStrokeColor(deep.cgColor); ctx.setLineWidth(2.2); ctx.setLineCap(.round)
+                ctx.move(to: CGPoint(x: x - 5, y: -5))
+                ctx.addQuadCurve(to: CGPoint(x: x + 5, y: -5), control: CGPoint(x: x, y: -1))
+                ctx.strokePath()
+            } else {
+                let h = 7 * (1 - closed * 0.75)
+                ctx.fillEllipse(in: CGRect(x: x - 3.1, y: -8 - h * 0.5, width: 6.2, height: h))
+                ctx.setFillColor(NSColor.white.cgColor)
+                ctx.fillEllipse(in: CGRect(x: x - 1.5, y: -9, width: 1.8, height: 1.8))
+            }
+        }
+        let nose = CGMutablePath()
+        nose.move(to: CGPoint(x: -4, y: 8))
+        nose.addQuadCurve(to: CGPoint(x: 4, y: 8), control: CGPoint(x: 0, y: 5))
+        nose.addQuadCurve(to: CGPoint(x: 0, y: 13), control: CGPoint(x: 4, y: 13))
+        nose.addQuadCurve(to: CGPoint(x: -4, y: 8), control: CGPoint(x: -4, y: 13))
+        nose.closeSubpath()
+        ctx.setFillColor(rgb(0x49332A).cgColor); ctx.addPath(nose); ctx.fillPath()
+        ctx.setStrokeColor(outline.cgColor); ctx.setLineWidth(1.1); ctx.setLineCap(.round)
+        ctx.move(to: CGPoint(x: 0, y: 13)); ctx.addLine(to: CGPoint(x: 0, y: 17))
+        ctx.move(to: CGPoint(x: 0, y: 17)); ctx.addQuadCurve(to: CGPoint(x: -5, y: 17), control: CGPoint(x: -3, y: 20))
+        ctx.move(to: CGPoint(x: 0, y: 17)); ctx.addQuadCurve(to: CGPoint(x: 5, y: 17), control: CGPoint(x: 3, y: 20))
+        ctx.strokePath()
+        ctx.restoreGState()
         ctx.restoreGState()
     }
 

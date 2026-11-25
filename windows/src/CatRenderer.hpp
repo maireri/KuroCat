@@ -5,6 +5,7 @@
 #include <gdiplus.h>
 #include <cmath>
 #include <vector>
+#include <string>
 #include <algorithm>
 #include "CatPhysics.hpp"
 #include "../../shared/CoatPatterns.hpp"
@@ -60,6 +61,14 @@ public:
         // 2. Mini 65% Mechanical Keyboard (facing cat) + Backlit Glow
         drawKeyboard(g, physics, settings.keyboardTheme, settings.eyeTheme, settings.showKeyLegends);
 
+        // Independent Shiba character, sharing the existing physics and desktop interactions.
+        if (settings.coatTheme == CatCoatTheme::MameShiba) {
+            drawMameShiba(g, seatX, seatY, physics);
+            if (!physics.floatingKeycaps.empty()) drawFloatingKeycaps(g, physics);
+            drawSparkles(g, physics, settings.eyeTheme);
+            return;
+        }
+
         // 3. Tail
         drawTail(g, seatX, seatY, physics, settings.coatTheme);
 
@@ -101,14 +110,16 @@ private:
     static Gdiplus::Color siameseOutline(BYTE a = 107) { return Gdiplus::Color(a, 173, 150, 128); }
     static Gdiplus::Color siameseCrease(BYTE a = 138)  { return Gdiplus::Color(a, 141, 120, 103); }
     static Gdiplus::Color siameseWhisker(BYTE a = 158) { return Gdiplus::Color(a, 122, 99, 83); }
+    static Gdiplus::Color ragdollGray(BYTE a = 255) { return Gdiplus::Color(a, 151, 160, 174); }
+    static Gdiplus::Color ragdollWhite(BYTE a = 255) { return Gdiplus::Color(a, 247, 247, 244); }
 
     static bool patterned(CatCoatTheme c) { return c == CatCoatTheme::Shorthair || c == CatCoatTheme::OrangeWhite; }
     static Gdiplus::Color rgb(unsigned int hex, BYTE a = 255) { return Gdiplus::Color(a, (hex >> 16) & 255, (hex >> 8) & 255, hex & 255); }
-    static Gdiplus::Color bodyColor(CatCoatTheme c) { return c == CatCoatTheme::Shorthair ? rgb(0xC2C5C1) : (c == CatCoatTheme::OrangeWhite ? rgb(0xF2EEE4) : catBlack()); }
+    static Gdiplus::Color bodyColor(CatCoatTheme c) { return c == CatCoatTheme::Ragdoll ? ragdollWhite() : (c == CatCoatTheme::Shorthair ? rgb(0xC2C5C1) : (c == CatCoatTheme::OrangeWhite ? rgb(0xF2EEE4) : catBlack())); }
     static Gdiplus::Color limbColor(CatCoatTheme c) { return c == CatCoatTheme::OrangeWhite ? rgb(0xD8AA73) : bodyColor(c); }
-    static Gdiplus::Color pawColor(CatCoatTheme c) { return patterned(c) ? rgb(0xF2EEE4) : (c == CatCoatTheme::Siamese ? siamesePoint() : catBlack()); }
-    static Gdiplus::Color earTailColor(CatCoatTheme c) { return c == CatCoatTheme::Siamese ? siamesePoint() : limbColor(c); }
-    static Gdiplus::Color creaseColor(CatCoatTheme c, BYTE a = 255) { return patterned(c) ? rgb(0x8B8171, (BYTE)(a*0.60f)) : contourMint(a); }
+    static Gdiplus::Color pawColor(CatCoatTheme c) { return (patterned(c) || c == CatCoatTheme::Ragdoll) ? ragdollWhite() : (c == CatCoatTheme::Siamese ? siamesePoint() : catBlack()); }
+    static Gdiplus::Color earTailColor(CatCoatTheme c) { return c == CatCoatTheme::Ragdoll ? ragdollGray() : (c == CatCoatTheme::Siamese ? siamesePoint() : limbColor(c)); }
+    static Gdiplus::Color creaseColor(CatCoatTheme c, BYTE a = 255) { return c == CatCoatTheme::Ragdoll ? ragdollGray((BYTE)(a*0.70f)) : (patterned(c) ? rgb(0x8B8171, (BYTE)(a*0.60f)) : contourMint(a)); }
     static Gdiplus::PointF coatMarkPoint(CoatPoint p, bool headSurface, bool skull, CatCoatTheme coat, float seatX, float seatY, Pt head, const CatPhysics& physics) {
         if (headSurface) {
             float depth=coat==CatCoatTheme::OrangeWhite ? 29.6f*std::sqrt(std::max(0.0f,1-p.x*p.x/(46*46)-p.y*p.y/(40*40))) : 27.5f;
@@ -131,6 +142,50 @@ private:
             if (mark.width == 0) { path.AddPolygon(points.data(), (INT)points.size()); SolidBrush brush(color); g.FillPath(&brush, &path); }
             else { path.AddLines(points.data(), (INT)points.size()); Pen pen(color, mark.width); pen.SetStartCap(LineCapRound); pen.SetEndCap(LineCapRound); pen.SetLineJoin(LineJoinRound); g.DrawPath(&pen, &path); }
         }
+    }
+
+    // Grey-and-white ragdoll coat: a narrow white blaze, cool-grey face patches and a soft saddle.
+    static void drawRagdollCoatMarks(Gdiplus::Graphics& g, float seatX, float seatY, Pt head, const CatPhysics& physics) {
+        using namespace Gdiplus;
+        GraphicsState bodyState = g.Save();
+        float sy = physics.bodySquash.value;
+        float sx = 1.0f + (1.0f - sy) * 0.55f;
+        g.TranslateTransform(seatX, seatY);
+        g.RotateTransform(physics.bodyTilt.value * RadToDeg);
+        g.ScaleTransform(sx, sy);
+        GraphicsPath saddle;
+        saddle.AddBezier(PointF(10,-78), PointF(28,-82), PointF(47,-64), PointF(48,-43));
+        saddle.AddBezier(PointF(48,-43), PointF(45,-29), PointF(31,-23), PointF(17,-29));
+        saddle.AddBezier(PointF(17,-29), PointF(11,-42), PointF(8,-61), PointF(10,-78));
+        saddle.CloseFigure();
+        SolidBrush grey(ragdollGray(238));
+        g.FillPath(&grey, &saddle);
+        Pen fur(ragdollGray(115), 1.0f);
+        fur.SetStartCap(LineCapRound); fur.SetEndCap(LineCapRound);
+        for (int i=0;i<5;++i) g.DrawLine(&fur, 23.0f+i*4.0f, -68.0f+i*1.5f, 28.0f+i*3.0f, -59.0f+i*1.5f);
+        g.Restore(bodyState);
+
+        GraphicsState faceState = g.Save();
+        g.TranslateTransform(head.x, head.y);
+        g.RotateTransform(physics.headTilt.value * RadToDeg);
+        GraphicsPath leftPatch;
+        leftPatch.AddBezier(PointF(-3,-31), PointF(-18,-35), PointF(-34,-26), PointF(-37,-9));
+        leftPatch.AddBezier(PointF(-37,-9), PointF(-35,1), PointF(-25,3), PointF(-17,-4));
+        leftPatch.AddBezier(PointF(-17,-4), PointF(-9,-10), PointF(-5,-16), PointF(-3,-31));
+        leftPatch.CloseFigure();
+        GraphicsPath rightPatch;
+        rightPatch.AddBezier(PointF(3,-31), PointF(18,-35), PointF(34,-26), PointF(37,-9));
+        rightPatch.AddBezier(PointF(37,-9), PointF(35,1), PointF(25,3), PointF(17,-4));
+        rightPatch.AddBezier(PointF(17,-4), PointF(9,-10), PointF(5,-16), PointF(3,-31));
+        rightPatch.CloseFigure();
+        g.FillPath(&grey, &leftPatch);
+        g.FillPath(&grey, &rightPatch);
+        // The unpainted centre between the patches remains the characteristic white blaze.
+        Pen cheekFur(ragdollGray(135), 0.9f);
+        cheekFur.SetStartCap(LineCapRound); cheekFur.SetEndCap(LineCapRound);
+        g.DrawLine(&cheekFur, -30,-5,-26,1);
+        g.DrawLine(&cheekFur, 30,-5,26,1);
+        g.Restore(faceState);
     }
 
     static Gdiplus::Color eyePrimary(EyeColorTheme t, BYTE a = 255) {
@@ -195,6 +250,90 @@ private:
         float mt = 1.0f - t;
         return { 2.0f * mt * (p1.x - p0.x) + 2.0f * t * (p2.x - p1.x),
                  2.0f * mt * (p1.y - p0.y) + 2.0f * t * (p2.y - p1.y) };
+    }
+
+    // MARK: - Mame Shiba (native KuroCat vector style)
+    static void drawMameShiba(Gdiplus::Graphics& g, float seatX, float seatY, const CatPhysics& physics) {
+        using namespace Gdiplus;
+        const Color orange(255, 201, 130, 63), deep(255, 150, 90, 45);
+        const Color cream(255, 247, 233, 210), outline(220, 117, 74, 45);
+        const Color innerEar(255, 185, 111, 84);
+        float breath = std::sin(physics.time * 2.1f) * 1.4f;
+        Pt head{seatX + physics.bodyTilt.value * 30.0f + physics.headYaw.value * 6.0f,
+                126.0f + physics.headOffsetY.value + physics.headPitch.value * 4.2f + breath};
+        float wag = std::sin(physics.tailPhase) * 3.0f;
+
+        // Curled tail behind the compact seated body.
+        {
+            Pen shadow(deep, 12.0f); shadow.SetStartCap(LineCapRound); shadow.SetEndCap(LineCapRound);
+            g.DrawBezier(&shadow, PointF(seatX+34,seatY-42), PointF(seatX+72,seatY-35),
+                         PointF(seatX+78,seatY-83+wag), PointF(seatX+58,seatY-78+wag));
+            Pen fur(orange, 7.5f); fur.SetStartCap(LineCapRound); fur.SetEndCap(LineCapRound);
+            g.DrawBezier(&fur, PointF(seatX+34,seatY-42), PointF(seatX+72,seatY-35),
+                         PointF(seatX+78,seatY-83+wag), PointF(seatX+58,seatY-78+wag));
+        }
+        SolidBrush body(orange), bib(cream), shade(Color(34,0,0,0));
+        g.FillEllipse(&shade, RectF(seatX-49.0f, seatY-54.0f, 98.0f, 72.0f));
+        g.FillEllipse(&body, RectF(seatX-47.0f, seatY-91.0f+breath, 94.0f, 112.0f));
+        g.FillEllipse(&bib, RectF(seatX-26.0f, seatY-77.0f+breath, 52.0f, 91.0f));
+
+        // Small forelegs move with the original paw springs.
+        Pt pawL=physics.leftPaw.point(), pawR=physics.rightPaw.point();
+        Pt paws[2]={pawL,pawR};
+        for(int i=0;i<2;++i) {
+            float restX = i==0 ? seatX-20.0f : seatX+20.0f;
+            float restPX = i==0 ? CatPhysics::LeftPawRest.x : CatPhysics::RightPawRest.x;
+            float y = seatY + (paws[i].y-235.0f)*0.38f;
+            float x = restX + (paws[i].x-restPX)*0.65f;
+            g.FillEllipse(&body, RectF(x-10.0f, seatY-45.0f, 20.0f, std::max(28.0f,y-seatY+52.0f)));
+            g.FillEllipse(&bib, RectF(x-9.0f, y-8.0f, 18.0f, 13.0f));
+        }
+
+        GraphicsState st=g.Save();
+        g.TranslateTransform(head.x,head.y);
+        g.RotateTransform(physics.headTilt.value*RadToDeg);
+        // Rounded triangular upright Shiba ears with warm inner-ear patches.
+        for(float sign : {-1.0f,1.0f}) {
+            GraphicsPath ear;
+            ear.AddBezier(PointF(sign*17,-25),PointF(sign*27,-30),PointF(sign*30,-49),PointF(sign*34,-51));
+            ear.AddBezier(PointF(sign*34,-51),PointF(sign*42,-48),PointF(sign*42,-31),PointF(sign*43,-22));
+            ear.AddBezier(PointF(sign*43,-22),PointF(sign*34,-14),PointF(sign*23,-17),PointF(sign*17,-25));
+            ear.CloseFigure();
+            SolidBrush eb(orange); Pen ep(outline,1.4f); g.FillPath(&eb,&ear); g.DrawPath(&ep,&ear);
+            GraphicsPath inner;
+            inner.AddBezier(PointF(sign*24,-27),PointF(sign*31,-30),PointF(sign*31,-40),PointF(sign*33,-43));
+            inner.AddBezier(PointF(sign*33,-43),PointF(sign*38,-40),PointF(sign*37,-32),PointF(sign*37,-27));
+            inner.CloseFigure();
+            SolidBrush ib(innerEar); g.FillPath(&ib,&inner);
+        }
+        g.FillEllipse(&body,-44,-37,88,77);
+        Pen faceOutline(outline,1.5f); g.DrawEllipse(&faceOutline,-44,-37,88,77);
+        g.FillEllipse(&bib, RectF(-34.0f,-3.0f,29.0f,25.0f)); g.FillEllipse(&bib, RectF(5.0f,-3.0f,29.0f,25.0f)); g.FillEllipse(&bib, RectF(-18.0f,5.0f,36.0f,22.0f));
+
+        // Dark expressive eyes with the shared blink / petting response.
+        float closed=physics.effectiveEyeClosure();
+        SolidBrush eye(deep), white(Color(255,255,255,255));
+        Pen blink(deep,2.2f); blink.SetStartCap(LineCapRound); blink.SetEndCap(LineCapRound);
+        for(float sign : {-1.0f,1.0f}) {
+            float x=sign*17.0f;
+            if(closed>0.78f) {
+                GraphicsPath lid; addQuadBezier(lid,{x-5,-5},{x,-1},{x+5,-5}); g.DrawPath(&blink,&lid);
+            } else {
+                float h=7.0f*(1.0f-closed*0.75f);
+                g.FillEllipse(&eye, RectF(x-3.1f,-8.0f-h*0.5f,6.2f,h));
+                g.FillEllipse(&white, RectF(x-1.5f,-9.0f,1.8f,1.8f));
+            }
+        }
+        SolidBrush nose(Color(255,73,51,42));
+        GraphicsPath np;
+        addQuadBezier(np,{-4,8},{0,5},{4,8});
+        addQuadBezier(np,{4,8},{4,13},{0,13});
+        addQuadBezier(np,{0,13},{-4,13},{-4,8}); np.CloseFigure(); g.FillPath(&nose,&np);
+        Pen mouth(outline,1.1f); mouth.SetStartCap(LineCapRound); mouth.SetEndCap(LineCapRound);
+        g.DrawLine(&mouth,0,13,0,17);
+        GraphicsPath ml; addQuadBezier(ml,{0,17},{-3,20},{-5,17}); g.DrawPath(&mouth,&ml);
+        GraphicsPath mr; addQuadBezier(mr,{0,17},{3,20},{5,17}); g.DrawPath(&mouth,&mr);
+        g.Restore(st);
     }
 
     // MARK: - Mini White Mouse (180° facing the cat)
@@ -420,7 +559,7 @@ private:
         PointF c2(seatX + 66.0f + wag2 * 0.4f, seatY - 26.0f + wag1 * 0.7f + huntDrop);
         PointF tip(seatX + 91.0f + wag2 * 0.5f, seatY - 30.0f + wag1 * 0.85f + huntDrop);
 
-        Pen tailPen(earTailColor(coat), coat == CatCoatTheme::Siamese ? 9.5f : 11.0f);
+        Pen tailPen(earTailColor(coat), coat == CatCoatTheme::Ragdoll ? 15.0f : (coat == CatCoatTheme::Siamese ? 9.5f : 11.0f));
         tailPen.SetStartCap(LineCapRound);
         tailPen.SetEndCap(LineCapRound);
         tailPen.SetLineJoin(LineJoinRound);
@@ -562,9 +701,11 @@ private:
         if (coat != CatCoatTheme::Siamese) {
             SolidBrush b(bodyColor(coat));
             g.FillPath(&b, &path);
-            if (patterned(coat)) {
+            if (patterned(coat) || coat == CatCoatTheme::Ragdoll) {
                 GraphicsState cs = g.Save(); g.SetClip(&path, CombineModeIntersect);
-                drawCoatMarks(g, seatX, seatY, headCenter, physics, coat); g.Restore(cs);
+                if (coat == CatCoatTheme::Ragdoll) drawRagdollCoatMarks(g, seatX, seatY, headCenter, physics);
+                else drawCoatMarks(g, seatX, seatY, headCenter, physics, coat);
+                g.Restore(cs);
             }
         } else {
             GraphicsState cs = g.Save();
@@ -677,7 +818,22 @@ private:
 
         drawEye3D(g, true, yawRad, pitchRad, physics, eyeTheme, coat);
         drawEye3D(g, false, yawRad, pitchRad, physics, eyeTheme, coat);
-        if (coat == CatCoatTheme::Siamese) {
+        if (coat == CatCoatTheme::Ragdoll) {
+            Pt nose = projectHead3D(0.0f, 8.0f, 29.0f, yawRad, pitchRad);
+            SolidBrush pink(Color(255, 232, 151, 164));
+            g.FillEllipse(&pink, nose.x - 2.7f, nose.y - 1.8f, 5.4f, 4.0f);
+            // Fine, lifted brow strokes: keep the stubborn expression without merging
+            // into the blue eyes or the grey cheek patches at desktop scale.
+            Pen brow(Color(178, 105, 111, 122), 1.35f);
+            brow.SetStartCap(LineCapRound); brow.SetEndCap(LineCapRound);
+            g.DrawLine(&brow, -27.0f, -21.5f, -13.0f, -18.0f);
+            g.DrawLine(&brow, 13.0f, -18.0f, 27.0f, -21.5f);
+            Pen mouth(Color(175, 105, 111, 122), 1.15f);
+            mouth.SetStartCap(LineCapRound); mouth.SetEndCap(LineCapRound);
+            g.DrawLine(&mouth, nose.x, nose.y + 2.0f, nose.x, nose.y + 5.0f);
+            g.DrawArc(&mouth, nose.x - 4.2f, nose.y + 3.0f, 4.2f, 3.0f, 0.0f, 95.0f);
+            g.DrawArc(&mouth, nose.x, nose.y + 3.0f, 4.2f, 3.0f, 85.0f, 95.0f);
+        } else if (coat == CatCoatTheme::Siamese) {
             Pt nose = projectHead3D(0.0f, 8.2f, 29.0f, yawRad, pitchRad);
             Pt mL   = projectHead3D(-4.2f, 12.2f, 28.4f, yawRad, pitchRad);
             Pt mM   = projectHead3D(0.0f, 11.2f, 28.8f, yawRad, pitchRad);

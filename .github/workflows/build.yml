@@ -2,7 +2,7 @@ name: Build KuroCat (macOS, Windows & Linux/UOS)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, custom-ragdoll-skin ]
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
@@ -34,7 +34,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: KuroCat-Windows-x64
-          path: windows/KuroCat.exe
+          path: |
+            windows/KuroCat.exe
+            windows/KuroCat-Ragdoll-Sitting.png
 
   build-macos:
     runs-on: macos-latest
