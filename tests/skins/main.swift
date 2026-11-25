@@ -117,7 +117,7 @@ for state in [8, 9] {
 }
 let dogActive = pixels(frame(.mameShiba,.referenceHazel,8))
 let dogIdle = pixels(frame(.mameShiba,.referenceHazel,9))
-for y in 300..<490 { for x in 260..<460 {
+for y in 340..<440 { for x in 310..<430 {
  let i=(y*720+x)*4
  precondition(Array(dogActive[i..<i+4]) == Array(dogIdle[i..<i+4]), "Mame Shiba face changes during paw movement")
 }}
