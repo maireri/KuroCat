@@ -1211,6 +1211,7 @@ final class SettingsWindowController: NSWindowController {
         case .siamese: return "Siamese Cat"
         case .shorthair: return "Silver Tabby Shorthair"
         case .orangeWhite: return "Orange & White Cat"
+        case .mameShiba: return "Mame Shiba Dog"
         }
     }
 
@@ -1247,6 +1248,7 @@ final class SettingsWindowController: NSWindowController {
             case .siamese: CatSettings.shared.eyeTheme = .siameseBlue
             case .shorthair: CatSettings.shared.eyeTheme = .softAmber
             case .orangeWhite: CatSettings.shared.eyeTheme = .referenceHazel
+            case .mameShiba: CatSettings.shared.eyeTheme = .warmAmber
             }
             if let eIdx = EyeColorTheme.allCases.firstIndex(of: CatSettings.shared.eyeTheme) {
                 eyePopup.selectItem(at: eIdx)
