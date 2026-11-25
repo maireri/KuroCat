@@ -1314,19 +1314,34 @@ static void drawMameShiba(Gdiplus::Graphics& g, float seatX, float seatY, const 
         }
         SolidBrush body(orange), bib(cream), shade(Color(34,0,0,0));
         g.FillEllipse(&shade, RectF(seatX-49.0f, seatY-54.0f, 98.0f, 72.0f));
-        g.FillEllipse(&body, RectF(seatX-47.0f, seatY-91.0f+breath, 94.0f, 112.0f));
-        g.FillEllipse(&bib, RectF(seatX-26.0f, seatY-77.0f+breath, 52.0f, 91.0f));
 
-        // Small forelegs move with the original paw springs.
-        Pt pawL=physics.leftPaw.point(), pawR=physics.rightPaw.point();
-        Pt paws[2]={pawL,pawR};
-        for(int i=0;i<2;++i) {
-            float restX = i==0 ? seatX-20.0f : seatX+20.0f;
-            float restPX = i==0 ? CatPhysics::LeftPawRest.x : CatPhysics::RightPawRest.x;
-            float y = seatY + (paws[i].y-235.0f)*0.38f;
-            float x = restX + (paws[i].x-restPX)*0.65f;
-            g.FillEllipse(&body, RectF(x-10.0f, seatY-45.0f, 20.0f, std::max(28.0f,y-seatY+52.0f)));
-            g.FillEllipse(&bib, RectF(x-9.0f, y-8.0f, 18.0f, 13.0f));
+        // Visible hind thighs and cream-tipped feet, tucked under the seated torso.
+        g.FillEllipse(&body, RectF(seatX-41.0f, seatY-91.0f, 33.0f, 27.0f));
+        g.FillEllipse(&body, RectF(seatX+8.0f, seatY-91.0f, 33.0f, 27.0f));
+        g.FillEllipse(&bib, RectF(seatX-39.0f, seatY-98.0f, 29.0f, 13.0f));
+        g.FillEllipse(&bib, RectF(seatX+10.0f, seatY-98.0f, 29.0f, 13.0f));
+
+        // Pear-shaped torso and chest bib.
+        g.FillEllipse(&body, RectF(seatX-47.0f, seatY-91.0f+breath, 94.0f, 112.0f));
+        g.FillEllipse(&bib, RectF(seatX-25.0f, seatY-77.0f+breath, 50.0f, 88.0f));
+
+        // Two connected front legs: rounded strokes emerge from the shoulders
+        // and finish in cream paws resting on the keyboard.
+        for (float sign : {-1.0f, 1.0f}) {
+            float shoulderX = seatX + sign * 19.0f;
+            float pawX = seatX + sign * 21.0f;
+            GraphicsPath leg;
+            leg.AddBezier(PointF(shoulderX, seatY-24.0f+breath),
+                          PointF(seatX+sign*24.0f, seatY-45.0f),
+                          PointF(pawX, seatY-72.0f),
+                          PointF(pawX, seatY-91.0f));
+            Pen legOutline(Color(255, 150, 90, 45), 19.0f);
+            legOutline.SetStartCap(LineCapRound); legOutline.SetEndCap(LineCapRound);
+            g.DrawPath(&legOutline, &leg);
+            Pen legFur(orange, 15.0f);
+            legFur.SetStartCap(LineCapRound); legFur.SetEndCap(LineCapRound);
+            g.DrawPath(&legFur, &leg);
+            g.FillEllipse(&bib, RectF(pawX-10.0f, seatY-99.0f, 20.0f, 12.0f));
         }
 
         GraphicsState st=g.Save();
