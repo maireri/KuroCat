@@ -57,7 +57,7 @@ constexpr const wchar_t* VERSION_PROP = L"KuroCatVersion"; // set on the tray ow
 constexpr const wchar_t* TRAY_OWNER_CLASS = L"KuroCatTrayOwnerClass";
 constexpr const wchar_t* OVERLAY_CLASS = L"KuroCatOverlayWindowClass";
 constexpr double FRAME_INTERVAL = 1.0 / 60.0;
-constexpr const wchar_t* UPDATE_PAGE_URL = L"https://kurocat-download.app.workbuddy.host/?sharecode=JVAABIVZ7L";
+constexpr const wchar_t* UPDATE_PAGE_URL = L"https://github.com/maireri/KuroCat/releases";
 constexpr const wchar_t* UPDATE_WIN_EXE_PATH = L"/downloads/KuroCat-Windows-x64.exe?sharecode=JVAABIVZ7L";
 constexpr UINT WM_TRAYICON = WM_APP + 1;
 constexpr UINT WM_WAKE_EXISTING = WM_APP + 2;
@@ -615,6 +615,10 @@ DWORD WINAPI updateCheckThreadProc(LPVOID param) {
 }
 
 void startAsyncUpdateCheck(HWND notifyHwnd, bool manual, int delayMs = 0) {
+    // Do not query or install the original author's upstream build: it omits the fork's Shiba character.
+    // Manual "check updates" opens this fork's own release page instead.
+    if (manual) ShellExecuteW(nullptr, L"open", UPDATE_PAGE_URL, nullptr, nullptr, SW_SHOWNORMAL);
+    return;
     auto* params = new UpdateCheckThreadParams{ notifyHwnd, manual, delayMs };
     HANDLE hThread = CreateThread(nullptr, 0, updateCheckThreadProc, params, 0, nullptr);
     if (hThread) {
@@ -2225,7 +2229,7 @@ void showContextMenu(AppState& app, POINT screenPt) {
             if (app.menuOwnerHwnd) startAsyncUpdateCheck(app.menuOwnerHwnd, true, 0);
             break;
         case CMD_OPEN_UPDATE: {
-            startInAppUpdate(app);
+            ShellExecuteW(nullptr, L"open", UPDATE_PAGE_URL, nullptr, nullptr, SW_SHOWNORMAL);
             break;
         }
         case CMD_RELAUNCH_ADMIN:
