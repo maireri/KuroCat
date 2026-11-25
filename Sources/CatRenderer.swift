@@ -1349,25 +1349,48 @@ private static func drawMameShiba(in ctx: CGContext, seatX: CGFloat, seatY: CGFl
                      control2: CGPoint(x: seatX + 78, y: seatY - 83 + wag))
         ctx.strokePath()
 
-        // Compact seated body and cream chest bib.
+        // Connected seated Shiba body: rear haunches first, then torso, then
+        // two short front legs that visibly emerge from the shoulders and meet the keyboard.
         ctx.setFillColor(NSColor(calibratedWhite: 0, alpha: 0.13).cgColor)
         ctx.fillEllipse(in: CGRect(x: seatX - 49, y: seatY - 54, width: 98, height: 72))
+
+        // Hind thighs and feet remain visible on both sides of the belly.
+        ctx.setFillColor(deep.cgColor)
+        ctx.fillEllipse(in: CGRect(x: seatX - 43, y: seatY - 94, width: 37, height: 29))
+        ctx.fillEllipse(in: CGRect(x: seatX + 6, y: seatY - 94, width: 37, height: 29))
+        ctx.setFillColor(orange.cgColor)
+        ctx.fillEllipse(in: CGRect(x: seatX - 41, y: seatY - 91, width: 33, height: 27))
+        ctx.fillEllipse(in: CGRect(x: seatX + 8, y: seatY - 91, width: 33, height: 27))
+        ctx.setFillColor(cream.cgColor)
+        ctx.fillEllipse(in: CGRect(x: seatX - 39, y: seatY - 98, width: 29, height: 13))
+        ctx.fillEllipse(in: CGRect(x: seatX + 10, y: seatY - 98, width: 29, height: 13))
+
+        // Pear-shaped torso, slightly narrower at the shoulders.
         ctx.setFillColor(orange.cgColor)
         ctx.fillEllipse(in: CGRect(x: seatX - 47, y: seatY - 91 + breath, width: 94, height: 112))
         ctx.setFillColor(cream.cgColor)
-        ctx.fillEllipse(in: CGRect(x: seatX - 26, y: seatY - 77 + breath, width: 52, height: 91))
+        ctx.fillEllipse(in: CGRect(x: seatX - 25, y: seatY - 77 + breath, width: 50, height: 88))
 
-        // Short forelegs and paws follow the original typing springs.
-        let paws = [physics.leftPaw.point, physics.rightPaw.point]
-        for (i, paw) in paws.enumerated() {
-            let restX = i == 0 ? seatX - 20 : seatX + 20
-            let restY = i == 0 ? CatPhysics.leftPawRest.y : CatPhysics.rightPawRest.y
-            let x = restX + (paw.x - (i == 0 ? CatPhysics.leftPawRest.x : CatPhysics.rightPawRest.x)) * 0.65
-            let y = seatY + (paw.y - restY) * 0.38
-            ctx.setFillColor(orange.cgColor)
-            ctx.fillEllipse(in: CGRect(x: x - 10, y: seatY - 45, width: 20, height: max(28, y - seatY + 52)))
+        // Front legs are drawn as continuous rounded limbs, not detached paw sprites.
+        for sign: CGFloat in [-1, 1] {
+            let shoulderX = seatX + sign * 19
+            let pawX = seatX + sign * 21
+            let leg = CGMutablePath()
+            leg.move(to: CGPoint(x: shoulderX, y: seatY - 24 + breath))
+            leg.addCurve(to: CGPoint(x: pawX, y: seatY - 91),
+                         control1: CGPoint(x: seatX + sign * 24, y: seatY - 45),
+                         control2: CGPoint(x: pawX, y: seatY - 72))
+            ctx.setStrokeColor(deep.cgColor)
+            ctx.setLineWidth(19)
+            ctx.setLineCap(.round)
+            ctx.addPath(leg)
+            ctx.strokePath()
+            ctx.setStrokeColor(orange.cgColor)
+            ctx.setLineWidth(15)
+            ctx.addPath(leg)
+            ctx.strokePath()
             ctx.setFillColor(cream.cgColor)
-            ctx.fillEllipse(in: CGRect(x: x - 9, y: y - 8, width: 18, height: 13))
+            ctx.fillEllipse(in: CGRect(x: pawX - 10, y: seatY - 99, width: 20, height: 12))
         }
 
         // Head, upright rounded-triangle ears, and classic Shiba cream markings.
