@@ -115,6 +115,7 @@ enum MenuCmd : UINT {
     CMD_TOGGLE_RUN_AS_ADMIN,
     CMD_QUIT,
     CMD_COAT_TABBY,
+    CMD_COAT_MAMESHIBA,
     CMD_EYE_OLIVE_GOLD,
     CMD_TABLET_AUTO,
     CMD_TABLET_ON,
@@ -1456,20 +1457,21 @@ void rebuildCombosAndSync(AppState& app) {
     HWND coatCb = GetDlgItem(hwnd, ID_COAT_COMBO);
     if (coatCb) {
         SendMessageW(coatCb, CB_RESETCONTENT, 0, 0);
-        const wchar_t* builtins[6] = {
+        const wchar_t* builtins[7] = {
             tr(L"\u7ECF\u5178\u5C0F\u9ED1\u732B", L"Classic Black Cat"),
             tr(L"\u6316\u7164\u66B9\u7F57\u732B", L"Siamese Cat"),
             tr(L"\u7F8E\u77ED\u94F6\u864E\u6591", L"Silver Tabby Shorthair"),
             tr(L"\u6A58\u767D\u732B", L"Orange & White Cat"),
             tr(L"\u5446\u732B", L"Dazed Cat"),
-            tr(L"\u72F8\u82B1\u732B", L"Tabby Cat")
+            tr(L"\u72F8\u82B1\u732B", L"Tabby Cat"),
+            tr(L"\u8C46\u67F4", L"Mame Shiba Dog")
         };
-        for (int i = 0; i < 6; ++i) SendMessageW(coatCb, CB_ADDSTRING, 0, (LPARAM)builtins[i]);
+        for (int i = 0; i < 7; ++i) SendMessageW(coatCb, CB_ADDSTRING, 0, (LPARAM)builtins[i]);
         int sel = (int)app.settings.coatTheme;
         for (size_t i = 0; i < app.skins.skins.size(); ++i) {
             SendMessageW(coatCb, CB_ADDSTRING, 0, (LPARAM)utf8ToWide(app.skins.skins[i].name).c_str());
             if (!app.settings.customSkin.empty() && app.skins.skins[i].id == app.settings.customSkin) {
-                sel = 6 + (int)i;
+                sel = 7 + (int)i;
             }
         }
         SendMessageW(coatCb, CB_SETCURSEL, (WPARAM)sel, 0);
@@ -1630,7 +1632,7 @@ LRESULT CALLBACK settingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 int sel = (int)SendMessageW((HWND)lParam, CB_GETCURSEL, 0, 0);
                 if (sel < 0) return 0;
                 if (id == ID_COAT_COMBO) {
-                    if (sel < 6) {
+                    if (sel < 7) {
                         app->settings.customSkin.clear();
                         app->settings.coatTheme = (CatCoatTheme)sel;
                         switch (app->settings.coatTheme) {
@@ -1640,9 +1642,10 @@ LRESULT CALLBACK settingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                             case CatCoatTheme::OrangeWhite:  app->settings.eyeTheme = EyeColorTheme::WarmAmber; break;
                             case CatCoatTheme::Dazed:        app->settings.eyeTheme = EyeColorTheme::SoftAmber; break;
                             case CatCoatTheme::Tabby:        app->settings.eyeTheme = EyeColorTheme::OliveGold; break;
+                            case CatCoatTheme::MameShiba:    app->settings.eyeTheme = EyeColorTheme::WarmAmber; break;
                         }
-                    } else if ((size_t)(sel - 6) < app->skins.skins.size()) {
-                        app->settings.customSkin = app->skins.skins[sel - 6].id;
+                    } else if ((size_t)(sel - 7) < app->skins.skins.size()) {
+                        app->settings.customSkin = app->skins.skins[sel - 7].id;
                     }
                     app->settings.saveToRegistry();
                     refreshDressingRoom(*app);
@@ -1978,6 +1981,8 @@ void showContextMenu(AppState& app, POINT screenPt) {
     AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::OrangeWhite), CMD_COAT_ORANGE_WHITE, tr(L"\u6A58\u767D\u732B", L"Orange & White Cat"));
     AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::Dazed), CMD_COAT_DAZED, tr(L"\u5446\u732B", L"Dazed Cat"));
     AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::Tabby), CMD_COAT_TABBY, tr(L"\u72F8\u82B1\u732B", L"Tabby Cat"));
+    AppendMenuW(coatMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(coatMenu, MF_STRING | coatCheck(CatCoatTheme::MameShiba), CMD_COAT_MAMESHIBA, tr(L"\u8C46\u67F4", L"Mame Shiba Dog"));
     size_t listed = std::min<size_t>(app.skins.skins.size(), CMD_SKIN_RANGE);
     if (listed) AppendMenuW(coatMenu, MF_SEPARATOR, 0, nullptr);
     for (size_t i = 0; i < listed; ++i) {
@@ -1987,7 +1992,7 @@ void showContextMenu(AppState& app, POINT screenPt) {
     AppendMenuW(coatMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(coatMenu, MF_STRING, CMD_IMPORT_SKIN, tr(L"\u5BFC\u5165\u76AE\u80A4 / \u6362\u88C5\u95F4\u2026", L"Import Skin / Wardrobe..."));
     AppendMenuW(coatMenu, MF_STRING, CMD_OPEN_WORKSHOP, tr(L"\u6253\u5F00\u76AE\u80A4\u5DE5\u574A\u2026", L"Open Skin Workshop..."));
-    AppendMenuW(menu, MF_POPUP, (UINT_PTR)coatMenu, tr(L"\u732B\u54AA\u76AE\u80A4 \U0001F431", L"Cat Skin \U0001F431"));
+    AppendMenuW(menu, MF_POPUP, (UINT_PTR)coatMenu, tr(L"\u5BA0\u7269\u5F62\u8C61 \U0001F43E", L"Pet Character \U0001F43E"));
 
     // Skin Workshop (Create custom skins) right on the top-level menu
     AppendMenuW(menu, MF_STRING, CMD_OPEN_WORKSHOP,
@@ -2165,6 +2170,12 @@ void showContextMenu(AppState& app, POINT screenPt) {
             app.settings.customSkin.clear();
             app.settings.coatTheme = cmd == CMD_COAT_SHORTHAIR ? CatCoatTheme::Shorthair : CatCoatTheme::OrangeWhite;
             app.settings.eyeTheme = cmd == CMD_COAT_SHORTHAIR ? EyeColorTheme::ReferenceHazel : EyeColorTheme::WarmAmber;
+            app.settings.saveToRegistry();
+            break;
+        case CMD_COAT_MAMESHIBA:
+            app.settings.customSkin.clear();
+            app.settings.coatTheme = CatCoatTheme::MameShiba;
+            app.settings.eyeTheme = EyeColorTheme::WarmAmber;
             app.settings.saveToRegistry();
             break;
         case CMD_COAT_DAZED:
