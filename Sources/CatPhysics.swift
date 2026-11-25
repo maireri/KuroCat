@@ -1448,8 +1448,14 @@ struct SkinSpec {
         o.palette.whiskers = .hex(0x8D8170, 0.68); o.palette.crease = .hex(0x8B8171, 0.60)
         o.headSurface = .dome; o.shape.pawStagger = 0
         o.marks = CoatPatterns.orangeWhite.map(SkinSpec.skinMark) + tailRings(0xA57543)
+        var d = SkinSpec(id: "builtin:6", name: "豆柴", builtIn: true)
+        d.palette.body = .hex(0xC9823F); d.palette.legs = .hex(0xC9823F)
+        d.palette.paws = .hex(0xF7E9D2); d.palette.belly = .hex(0xF7E9D2)
+        d.palette.earOuter = .hex(0xC9823F); d.palette.earInner = .hex(0xB96F54)
+        d.palette.tail = .hex(0xC9823F); d.palette.nose = .hex(0x49332A)
+        d.palette.whiskers = .hex(0x754A2D, 0.82); d.palette.crease = .hex(0x754A2D, 0.82)
         k.idleLegsTinted = false; s.idleLegsTinted = false; h.idleLegsTinted = false; o.idleLegsTinted = false
-        return [.classicBlack: k, .siamese: s, .shorthair: h, .orangeWhite: o]
+        return [.classicBlack: k, .siamese: s, .shorthair: h, .orangeWhite: o, .mameShiba: d]
     }()
 
     private static func skinMark(_ m: CoatMark) -> SkinMark {
