@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(KuroCat WIN32
     src/main.cpp
+    resource.rc
     app.manifest
 )
 

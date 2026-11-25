@@ -5,16 +5,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var overlayWindow: OverlayWindow!
     private var renderTimer: Timer?
+    private var windowWatchdogTimer: Timer?
     private var lastFrameTime: CFTimeInterval = CACurrentMediaTime()
+    private var lastFullscreenCheckTime: CFTimeInterval = 0
+    private var hiddenByFullscreen = false
+    private var ticksSinceLastRedraw = 0
+    private var lastDemoKeyTime: CFTimeInterval = 0
     private var isPetVisible = true
     private var availableUpdateVersion: String?
     private var availableUpdateURL: URL?
     private var availableAssetURL: URL?
     private var isUpdating = false
     private var isHandingOverToNewerCopy = false
+    private var dressingRoom: DressingRoomWindowController?
+    private var settingsWindow: SettingsWindowController?
 
     private var currentAppVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.3.5"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.4.2"
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -32,6 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             let menu = self.buildMenu()
             NSMenu.popUpContextMenu(menu, with: event, for: self.overlayWindow.catView)
+        }
+        catView.onDropSkinFiles = { [weak self] urls in
+            for url in urls { self?.importDroppedFile(from: url) }
         }
 
         // Wire dual-layer InputEngine -> CatPhysics
@@ -54,17 +64,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             _ = setAutoStartEnabled(true)
         }
         startRenderLoop()
+        startWindowWatchdog()
 
-        // Auto-check GitHub Releases for updates shortly after launch
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
-            self?.checkForUpdates(manual: false)
-        }
+        // This maintained fork uses its own release channel. Never auto-install upstream builds,
+        // because they do not contain the Mame Shiba character.
+
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         // Quitting during launch because a newer copy is running: leave its stats alone.
         if isHandingOverToNewerCopy { return }
         renderTimer?.invalidate()
+        windowWatchdogTimer?.invalidate()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
         InputEngine.shared.flushStats()
         InputEngine.shared.stop()
     }
@@ -142,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // MARK: - 60 FPS Render Loop
+    // MARK: - Adaptive Redraw
 
     private func startRenderLoop() {
         lastFrameTime = CACurrentMediaTime()
@@ -152,10 +164,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let dt = CGFloat(now - self.lastFrameTime)
             self.lastFrameTime = now
 
+            // Fullscreen auto-hide check (~2Hz)
+            if now - self.lastFullscreenCheckTime > 0.5 {
+                self.lastFullscreenCheckTime = now
+                let s = CatSettings.shared
+                let obsBg = (s.obsCaptureMode > 0 && s.obsHideDesktop)
+                if s.autoHideFullscreen && !obsBg {
+                    let fs = Self.isOtherAppFullscreen()
+                    if fs != self.hiddenByFullscreen {
+                        self.hiddenByFullscreen = fs
+                        self.overlayWindow.alphaValue = fs ? 0.0 : 1.0
+                        if fs { self.overlayWindow.ignoresMouseEvents = true }
+                    }
+                } else if self.hiddenByFullscreen {
+                    self.hiddenByFullscreen = false
+                    self.overlayWindow.alphaValue = 1.0
+                }
+            }
+
             let view = self.overlayWindow.catView
-            view.physics.step(dt: dt, windowFrameInScreen: self.overlayWindow.frame)
+            let physics = view.physics
+            let input = InputEngine.shared
+            let windowFrame = self.overlayWindow.frame
+            let previousMouseMoveTime = input.lastMouseMoveTime
+            let wasBlinking = physics.isBlinking
+            let wasYawning = physics.isYawning
+            physics.step(dt: dt, windowFrameInScreen: windowFrame)
             view.updateHoverAndClickThrough()
-            view.needsDisplay = true
+
+            // Track the mouse at 60 Hz. Ordinary movement away from the pet can share the idle redraw cadence.
+            let lastDirectInput = max(input.lastKeyActivityTime, input.lastMouseClickTime, self.lastDemoKeyTime)
+            let mouseMoving = now - input.lastMouseMoveTime < 0.12
+            let mouseStartedMoving = mouseMoving && now - previousMouseMoveTime >= 0.12
+            let mouseNearPet = mouseMoving && windowFrame.insetBy(dx: -24, dy: -24).contains(input.lastMouseLocation)
+            let isAsleep = physics.sleepiness >= 0.95
+            let isActive = now - lastDirectInput < 0.8 || !input.activeKeys.isEmpty
+                || mouseStartedMoving || mouseNearPet
+                || input.leftMouseDown || input.rightMouseDown || input.otherMouseDown || view.isDraggingOrResizing
+                || !physics.keyGlow.isEmpty || !physics.floatingKeycaps.isEmpty
+                || physics.petHeadIntensity > 0.02 || physics.huntIntensity.value > 0.02
+                || physics.scruffDrag.value > 0.02 || physics.isChangingLie
+                || physics.angerIntensity.value > 0.02 || physics.dizzyIntensity.value > 0.02
+                || wasYawning || physics.isYawning || (!isAsleep && (wasBlinking || physics.isBlinking))
+            let ticksPerRedraw = isActive ? 1 : (isAsleep ? 3 : 2) // 60, 20, or 30 FPS on a 60 Hz tick.
+            self.ticksSinceLastRedraw += 1
+            // Give small idle movements time to accumulate, but refresh at least every 100 ms.
+            if self.ticksSinceLastRedraw >= ticksPerRedraw &&
+                (isActive || self.ticksSinceLastRedraw >= 6 || view.poseNeedsDisplay()) {
+                self.ticksSinceLastRedraw = 0
+                view.needsDisplay = true
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         renderTimer = timer
@@ -187,169 +245,210 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let engine = InputEngine.shared
         let settings = CatSettings.shared
         let physics = overlayWindow.catView.physics
+        let en = settings.isEnglish
+
+        func tr(_ zh: String, _ eng: String) -> String { en ? eng : zh }
 
         // Status header
         let statusPrefix = engine.status.needsAttention ? "⚠️" : "🟢"
-        let statusItem = NSMenuItem(title: "\(statusPrefix) \(engine.status.rawValue)", action: engine.status.needsAttention ? #selector(openInputMonitoringSettings) : nil, keyEquivalent: "")
+        let statusText: String
+        if en {
+            switch engine.status {
+            case .fullHardware: statusText = "Hardware Input Active (HID + EventTap)"
+            case .hidOnly: statusText = "Hardware HID Active"
+            case .eventTapOnly: statusText = "Global EventTap Active"
+            case .needsPermission: statusText = "Input Monitoring Permission Needed"
+            case .needsRestart: statusText = "Authorized — Restart to Retry"
+            }
+        } else {
+            statusText = engine.status.rawValue
+        }
+        let statusItem = NSMenuItem(title: "\(statusPrefix) \(statusText)", action: engine.status.needsAttention ? #selector(openInputMonitoringSettings) : nil, keyEquivalent: "")
         statusItem.target = self
         menu.addItem(statusItem)
 
         if engine.status == .needsPermission {
-            let grantItem = NSMenuItem(title: "🔑 前往系统设置开启「输入监控」...", action: #selector(openInputMonitoringSettings), keyEquivalent: "")
+            let grantItem = NSMenuItem(title: tr("🔑 前往系统设置开启「输入监控」...", "🔑 Open Input Monitoring Settings..."), action: #selector(openInputMonitoringSettings), keyEquivalent: "")
             grantItem.target = self
             menu.addItem(grantItem)
         }
 
         // Live stats
-        let statsTitle = "⌨️ 今日击键 \(engine.totalKeystrokesToday)  ·  KPM \(engine.currentKPM)  ·  摸猫 \(physics.totalPetSessions) 次"
+        let statsTitle = en
+            ? "⌨️ Today \(engine.totalKeystrokesToday)  ·  KPM \(engine.currentKPM)  ·  Pets \(physics.totalPetSessions)"
+            : "⌨️ 今日击键 \(engine.totalKeystrokesToday)  ·  KPM \(engine.currentKPM)  ·  摸猫 \(physics.totalPetSessions) 次"
         let statsItem = NSMenuItem(title: statsTitle, action: nil, keyEquivalent: "")
         statsItem.isEnabled = false
         menu.addItem(statsItem)
 
         menu.addItem(.separator())
 
-        // Visibility & Interactive modes
-        let visItem = NSMenuItem(title: isPetVisible ? "隐藏小黑猫" : "显示小黑猫", action: #selector(toggleVisibility), keyEquivalent: "")
+        // Essential everyday actions only — everything else lives cleanly in the unified Settings window!
+        let visItem = NSMenuItem(title: isPetVisible ? tr("隐藏桌宠", "Hide Pet") : tr("显示桌宠", "Show Pet"), action: #selector(toggleVisibility), keyEquivalent: "")
         visItem.target = self
         menu.addItem(visItem)
 
-        let clickThroughItem = NSMenuItem(title: "完全鼠标穿透 (按住 ⌥Option 可临时右键/拖动)", action: #selector(toggleClickThrough), keyEquivalent: "")
-        clickThroughItem.target = self
-        clickThroughItem.state = settings.fullClickThrough ? .on : .off
-        menu.addItem(clickThroughItem)
+        let editItem = NSMenuItem(
+            title: settings.isEditMode
+                ? tr("✓ 完成调整大小与方向", "✓ Finish Resize & Direction")
+                : tr("调整大小与方向 (双击小猫)", "Resize & Direction (Double-Click)"),
+            action: #selector(toggleEditMode),
+            keyEquivalent: ""
+        )
+        editItem.target = self
+        editItem.state = settings.isEditMode ? .on : .off
+        menu.addItem(editItem)
 
-        let fullscreenItem = NSMenuItem(title: "全屏游戏/应用置顶显示", action: #selector(toggleFullScreenOverlay), keyEquivalent: "")
-        fullscreenItem.target = self
-        fullscreenItem.state = settings.fullScreenOverlay ? .on : .off
-        menu.addItem(fullscreenItem)
-
-        let autoStartItem = NSMenuItem(title: "开机自动启动", action: #selector(toggleAutoStart), keyEquivalent: "")
-        autoStartItem.target = self
-        autoStartItem.state = isAutoStartEnabled() ? .on : .off
-        menu.addItem(autoStartItem)
-
-        menu.addItem(.separator())
-
-        // Features
-        let badgesItem = NSMenuItem(title: "显示按键气泡 ([S] [W] [⇧])", action: #selector(toggleKeyBadges), keyEquivalent: "")
-        badgesItem.target = self
-        badgesItem.state = settings.showKeyBadges ? .on : .off
-        menu.addItem(badgesItem)
-
-        let mouseBadgesItem = NSMenuItem(title: "显示鼠标点击气泡 ([左键] [右键])", action: #selector(toggleMouseBadges), keyEquivalent: "")
-        mouseBadgesItem.target = self
-        mouseBadgesItem.state = settings.showMouseBadges ? .on : .off
-        menu.addItem(mouseBadgesItem)
-
-        let legendsItem = NSMenuItem(title: "显示键盘字符", action: #selector(toggleKeyLegends), keyEquivalent: "")
-        legendsItem.target = self
-        legendsItem.state = settings.showKeyLegends ? .on : .off
-        menu.addItem(legendsItem)
-
-        let footItem = NSMenuItem(title: "3键同时按「用脚按」彩蛋 🐾", action: #selector(toggleFootEgg), keyEquivalent: "")
-        footItem.target = self
-        footItem.state = settings.footEasterEgg ? .on : .off
-        menu.addItem(footItem)
-
-        let petItem = NSMenuItem(title: "摸头/摸背闭眼互动", action: #selector(togglePetInteraction), keyEquivalent: "")
-        petItem.target = self
-        petItem.state = settings.petInteraction ? .on : .off
-        menu.addItem(petItem)
-
-        menu.addItem(.separator())
-
-        // Scale submenu
-        let scaleMenu = NSMenu()
-        let scales: [(String, CGFloat)] = [
-            ("迷你 (0.65x)", 0.65),
-            ("偏小 (0.85x)", 0.85),
-            ("标准 (1.0x)", 1.0),
-            ("偏大 (1.25x)", 1.25),
-            ("超大 (1.5x)", 1.5)
-        ]
-        for (title, val) in scales {
-            let item = NSMenuItem(title: title, action: #selector(selectScale(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = NSNumber(value: Double(val))
-            item.state = abs(settings.scale - val) < 0.05 ? .on : .off
-            scaleMenu.addItem(item)
-        }
-        let scaleParent = NSMenuItem(title: "尺寸大小", action: nil, keyEquivalent: "")
-        scaleParent.submenu = scaleMenu
-        menu.addItem(scaleParent)
-
-        // Cat coat submenu: original skins plus approved shorthair and orange-white.
+        // Quick Cat Skin switcher submenu
         let coatMenu = NSMenu()
+        let library = SkinLibrary.shared
+        let customActive = library.skin(id: settings.customSkin) != nil
         for coat in CatCoatTheme.allCases {
-            let item = NSMenuItem(title: coat.rawValue, action: #selector(selectCoatTheme(_:)), keyEquivalent: "")
+            let coatTitle: String
+            if en {
+                switch coat {
+                case .classicBlack: coatTitle = "Classic Black Cat"
+                case .siamese: coatTitle = "Siamese Cat"
+                case .shorthair: coatTitle = "Silver Tabby Shorthair"
+                case .orangeWhite: coatTitle = "Orange & White Cat"
+                case .mameShiba: coatTitle = "Mame Shiba Dog 🐕"
+                }
+            } else {
+                coatTitle = coat.rawValue
+            }
+            let item = NSMenuItem(title: coatTitle, action: #selector(selectCoatTheme(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = coat.rawValue
-            item.state = settings.coatTheme == coat ? .on : .off
+            item.state = !customActive && settings.coatTheme == coat ? .on : .off
             coatMenu.addItem(item)
         }
-        let coatParent = NSMenuItem(title: "猫咪皮肤 🐱", action: nil, keyEquivalent: "")
+        if !library.skins.isEmpty {
+            coatMenu.addItem(.separator())
+            for skin in library.skins {
+                let item = NSMenuItem(title: skin.name, action: #selector(selectCustomSkin(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = skin.id
+                item.state = settings.customSkin == skin.id ? .on : .off
+                if !skin.author.isEmpty { item.toolTip = tr("作者：\(skin.author)", "Author: \(skin.author)") }
+                coatMenu.addItem(item)
+            }
+        }
+        coatMenu.addItem(.separator())
+        let importItem = NSMenuItem(title: tr("导入皮肤…", "Import Skin…"), action: #selector(showDressingRoom), keyEquivalent: "")
+        importItem.target = self
+        coatMenu.addItem(importItem)
+        let workshopItem = NSMenuItem(title: tr("打开皮肤工坊…", "Open Skin Workshop…"), action: #selector(openSkinWorkshop), keyEquivalent: "")
+        workshopItem.target = self
+        coatMenu.addItem(workshopItem)
+        let openDirItem = NSMenuItem(title: tr("打开皮肤文件夹", "Open Skins Folder"), action: #selector(openSkinsFolder), keyEquivalent: "")
+        openDirItem.target = self
+        coatMenu.addItem(openDirItem)
+        if !library.skins.isEmpty {
+            let deleteMenu = NSMenu()
+            for skin in library.skins {
+                let item = NSMenuItem(title: skin.name, action: #selector(deleteCustomSkin(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = skin.id
+                deleteMenu.addItem(item)
+            }
+            let deleteParent = NSMenuItem(title: tr("删除皮肤", "Delete Skin"), action: nil, keyEquivalent: "")
+            deleteParent.submenu = deleteMenu
+            coatMenu.addItem(deleteParent)
+        }
+        let coatParent = NSMenuItem(title: tr("宠物形象 🐾", "Pet Character 🐾"), action: nil, keyEquivalent: "")
         coatParent.submenu = coatMenu
         menu.addItem(coatParent)
 
-        // Keyboard Theme submenu
-        let kbMenu = NSMenu()
-        for theme in KeyboardTheme.allCases {
-            let item = NSMenuItem(title: theme.rawValue, action: #selector(selectKeyboardTheme(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = theme.rawValue
-            item.state = settings.keyboardTheme == theme ? .on : .off
-            kbMenu.addItem(item)
-        }
-        let kbParent = NSMenuItem(title: "键盘配色", action: nil, keyEquivalent: "")
-        kbParent.submenu = kbMenu
-        menu.addItem(kbParent)
+        let topWorkshopItem = NSMenuItem(
+            title: tr("🎨 皮肤工坊（制作皮肤）…", "🎨 Skin Workshop (Create Skins)…"),
+            action: #selector(openSkinWorkshop),
+            keyEquivalent: ""
+        )
+        topWorkshopItem.target = self
+        menu.addItem(topWorkshopItem)
 
-        // Eye Color submenu
-        let eyeMenu = NSMenu()
-        for eye in EyeColorTheme.allCases {
-            let item = NSMenuItem(title: eye.rawValue, action: #selector(selectEyeTheme(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = eye.rawValue
-            item.state = settings.eyeTheme == eye ? .on : .off
-            eyeMenu.addItem(item)
-        }
-        let eyeParent = NSMenuItem(title: "瞳色切换", action: nil, keyEquivalent: "")
-        eyeParent.submenu = eyeMenu
-        menu.addItem(eyeParent)
+        let settingsItem = NSMenuItem(title: tr("⚙️ 设置…", "⚙️ Settings…"), action: #selector(openSettingsWindow), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         menu.addItem(.separator())
 
-        let demoItem = NSMenuItem(title: "🎬 演示打字 + 摸猫动画", action: #selector(runDemoBurst), keyEquivalent: "")
-        demoItem.target = self
-        menu.addItem(demoItem)
-
-        let resetPosItem = NSMenuItem(title: "重置位置到右下角", action: #selector(resetPosition), keyEquivalent: "")
-        resetPosItem.target = self
-        menu.addItem(resetPosItem)
-
-        let relaunchItem = NSMenuItem(title: "重启 KuroCat (授权后刷新)", action: #selector(relaunchApp), keyEquivalent: "")
-        relaunchItem.target = self
-        menu.addItem(relaunchItem)
-
         if let ver = availableUpdateVersion {
-            let title = isUpdating ? "⏳ 正在下载更新 \(ver)..." : "🆕 发现新版本 \(ver) — 点击自动更新"
+            let title = isUpdating
+                ? tr("⏳ 正在下载更新 \(ver)...", "⏳ Downloading update \(ver)...")
+                : tr("🆕 发现新版本 \(ver) — 点击自动更新", "🆕 Update Available \(ver) — Click to Update")
             let updateItem = NSMenuItem(title: title, action: #selector(openUpdateDownload), keyEquivalent: "")
             updateItem.target = self
             updateItem.isEnabled = !isUpdating
             menu.addItem(updateItem)
         } else {
-            let checkItem = NSMenuItem(title: "检查更新 (当前 v\(currentAppVersion))", action: #selector(manualCheckForUpdates), keyEquivalent: "")
+            let checkItem = NSMenuItem(
+                title: tr("检查更新 (v\(currentAppVersion))", "Check for Updates (v\(currentAppVersion))"),
+                action: #selector(manualCheckForUpdates),
+                keyEquivalent: ""
+            )
             checkItem.target = self
             menu.addItem(checkItem)
         }
 
-        menu.addItem(.separator())
+        let relaunchItem = NSMenuItem(title: tr("重启 KuroCat", "Restart KuroCat"), action: #selector(relaunchApp), keyEquivalent: "")
+        relaunchItem.target = self
+        menu.addItem(relaunchItem)
 
-        let quitItem = NSMenuItem(title: "退出 KuroCat", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: tr("退出 KuroCat", "Quit KuroCat"), action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
         return menu
+    }
+
+    @objc private func openSettingsWindow() {
+        if settingsWindow == nil {
+            let ctrl = SettingsWindowController()
+            ctrl.onSettingsChanged = { [weak self] in
+                self?.overlayWindow.catView.needsDisplay = true
+                self?.dressingRoom?.refresh()
+            }
+            ctrl.onScaleChanged = { [weak self] newScale in
+                self?.overlayWindow.applyScale(newScale)
+            }
+            ctrl.onResetPoseAndPosition = { [weak self] in
+                self?.overlayWindow.applyScale(1.0)
+                self?.overlayWindow.resetPosition()
+                self?.overlayWindow.catView.needsDisplay = true
+            }
+            ctrl.onOpenDressingRoom = { [weak self] in
+                self?.showDressingRoom()
+            }
+            ctrl.onImportKeyboardSkin = { [weak self] in
+                self?.promptImportKeyboardSkin()
+            }
+            ctrl.onApplyWindowLevel = { [weak self] in
+                self?.overlayWindow.applyWindowLevelAndBehavior()
+                self?.syncWindowTopmost()
+            }
+            ctrl.onApplyOBSMode = { [weak self] in
+                self?.overlayWindow.applyOBSMode()
+            }
+            ctrl.onAutoHideChanged = { [weak self] in
+                guard let self else { return }
+                if !CatSettings.shared.autoHideFullscreen && self.hiddenByFullscreen {
+                    self.hiddenByFullscreen = false
+                    self.overlayWindow.alphaValue = 1.0
+                }
+            }
+            ctrl.getAutoStart = { [weak self] in
+                self?.isAutoStartEnabled() ?? false
+            }
+            ctrl.setAutoStart = { [weak self] on in
+                _ = self?.setAutoStartEnabled(on)
+            }
+            ctrl.onLanguageChanged = { [weak self] in
+                self?.overlayWindow.catView.needsDisplay = true
+            }
+            settingsWindow = ctrl
+        }
+        settingsWindow?.present()
     }
 
     // MARK: - Actions
@@ -376,9 +475,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleVisibility() {
         isPetVisible.toggle()
         if isPetVisible {
+            lastFrameTime = CACurrentMediaTime()
+            ticksSinceLastRedraw = 0
+            overlayWindow.catView.needsDisplay = true
             overlayWindow.orderFrontRegardless()
         } else {
             overlayWindow.orderOut(nil)
+        }
+    }
+
+    @objc private func selectTabletMode(_ sender: NSMenuItem) {
+        if let mode = sender.representedObject as? Int {
+            CatSettings.shared.tabletMode = mode
+            overlayWindow.catView.needsDisplay = true
         }
     }
 
@@ -389,6 +498,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleFullScreenOverlay() {
         CatSettings.shared.fullScreenOverlay.toggle()
         overlayWindow.applyWindowLevelAndBehavior()
+        syncWindowTopmost()
+    }
+
+    // MARK: - Topmost Watchdog (Space / App Activation)
+
+    private func startWindowWatchdog() {
+        let nc = NSWorkspace.shared.notificationCenter
+        nc.addObserver(self, selector: #selector(handleWorkspaceStateChanged),
+                       name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
+        nc.addObserver(self, selector: #selector(handleWorkspaceStateChanged),
+                       name: NSWorkspace.didActivateApplicationNotification, object: nil)
+
+        windowWatchdogTimer?.invalidate()
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.syncWindowTopmost()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        windowWatchdogTimer = timer
+    }
+
+    @objc private func handleWorkspaceStateChanged() {
+        syncWindowTopmost()
+    }
+
+    private func syncWindowTopmost() {
+        guard let overlayWindow, isPetVisible, !hiddenByFullscreen else { return }
+        let s = CatSettings.shared
+        let obsBg = (s.obsCaptureMode > 0 && s.obsHideDesktop)
+        if obsBg { return }
+        if s.fullScreenOverlay {
+            overlayWindow.orderFrontRegardless()
+        }
     }
 
     // MARK: - Launch at Login (macOS LaunchAgent — works reliably for signed & ad-hoc builds)
@@ -455,8 +596,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         CatSettings.shared.footEasterEgg.toggle()
     }
 
+    @objc private func toggleTailEgg() {
+        CatSettings.shared.tailEasterEgg.toggle()
+    }
+
+    @objc private func toggleKeyboardMarquee() {
+        CatSettings.shared.keyboardMarquee.toggle()
+    }
+
     @objc private func togglePetInteraction() {
         CatSettings.shared.petInteraction.toggle()
+    }
+
+    @objc private func selectOBSCaptureMode(_ sender: NSMenuItem) {
+        guard let num = sender.representedObject as? NSNumber else { return }
+        CatSettings.shared.obsCaptureMode = num.intValue
+        if num.intValue == 0 {
+            CatSettings.shared.obsHideDesktop = false
+        }
+        overlayWindow.applyOBSMode()
+    }
+
+    @objc private func toggleOBSHideDesktop() {
+        CatSettings.shared.obsHideDesktop.toggle()
+        overlayWindow.applyOBSMode()
+    }
+
+    @objc private func toggleAutoHideFullscreen() {
+        CatSettings.shared.autoHideFullscreen.toggle()
+        if !CatSettings.shared.autoHideFullscreen && hiddenByFullscreen {
+            hiddenByFullscreen = false
+            overlayWindow.alphaValue = 1.0
+        }
+    }
+
+    private static func isOtherAppFullscreen() -> Bool {
+        guard let front = NSWorkspace.shared.frontmostApplication,
+              front.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+              front.bundleIdentifier != "com.apple.finder" else {
+            return false
+        }
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return false
+        }
+        let pid = front.processIdentifier
+        for w in list {
+            guard let ownerPID = w[kCGWindowOwnerPID as String] as? pid_t, ownerPID == pid,
+                  let layer = w[kCGWindowLayer as String] as? Int, layer == 0,
+                  let boundsDict = w[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: boundsDict as CFDictionary) else { continue }
+            for screen in NSScreen.screens {
+                if rect.width >= screen.frame.width - 2 && rect.height >= screen.frame.height - 2 {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    @objc private func toggleEditMode() {
+        CatSettings.shared.isEditMode.toggle()
+        overlayWindow.catView.needsDisplay = true
+    }
+
+    @objc private func selectLanguage(_ sender: NSMenuItem) {
+        guard let code = sender.representedObject as? String else { return }
+        CatSettings.shared.language = code
+        overlayWindow.catView.needsDisplay = true
     }
 
     @objc private func selectScale(_ sender: NSMenuItem) {
@@ -467,6 +673,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func selectCoatTheme(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let coat = CatCoatTheme(rawValue: raw) else { return }
+        CatSettings.shared.customSkin = ""
         CatSettings.shared.coatTheme = coat
         // Auto-pair signature eye color (still freely overridable via 瞳色切换!)
         switch coat {
@@ -474,15 +681,191 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             CatSettings.shared.eyeTheme = .neonChartreuse
         case .siamese:
             CatSettings.shared.eyeTheme = .siameseBlue
-        case .shorthair, .orangeWhite:
-            CatSettings.shared.eyeTheme = .softAmber
+        case .shorthair:
+            CatSettings.shared.eyeTheme = .referenceHazel
+        case .orangeWhite:
+            CatSettings.shared.eyeTheme = .warmAmber
+        case .mameShiba:
+            CatSettings.shared.eyeTheme = .warmAmber
         }
+        dressingRoom?.refresh()
+        settingsWindow?.refresh()
+    }
+
+    // MARK: - Imported skins (换装间)
+
+    private static let skinWorkshopURLString = "https://chanke17.github.io/KuroCat-Workshop/"
+    private static let keyboardPlazaURLString = "https://chanke17.github.io/KuroCat-Workshop/#keyboards"
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            importDroppedFile(from: url)
+        }
+    }
+
+    private func importDroppedFile(from url: URL) {
+        if KeyboardSkinSpec.looksLikeKeyboardJSON(url) {
+            importKeyboardSkin(from: url)
+        } else if url.pathExtension.lowercased() == "kurocat" {
+            importSkin(from: url)
+        }
+    }
+
+    @objc private func openSkinWorkshop() {
+        if let url = URL(string: Self.skinWorkshopURLString) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openSkinsFolder() {
+        let dir = SkinLibrary.directory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(dir)
+    }
+
+    @objc private func showDressingRoom() {
+        if dressingRoom == nil {
+            let controller = DressingRoomWindowController()
+            controller.onImport = { [weak self] url in self?.importSkin(from: url) }
+            dressingRoom = controller
+        }
+        dressingRoom?.present()
+    }
+
+    /// Validates and stores a `.kurocat`, then wears it. Invalid files get a Chinese explanation.
+    private func importSkin(from url: URL) {
+        do {
+            let id = try SkinLibrary.shared.importFile(url)
+            CatSettings.shared.customSkin = id
+            let skin = SkinLibrary.shared.skin(id: id)
+            var message = "已换上「\(skin?.name ?? "新皮肤")」"
+            if let author = skin?.author, !author.isEmpty { message += "（作者：\(author)）" }
+            dressingRoom?.setStatus("✓ " + message, kind: 1)
+            dressingRoom?.refresh()
+            settingsWindow?.refresh()
+        } catch {
+            let reason = error.localizedDescription
+            // With 换装间 open the red status line explains it in place; an alert is only for drops onto the cat.
+            if let room = dressingRoom, room.isVisible {
+                room.setStatus("没能导入「\(url.lastPathComponent)」：\(reason)", kind: 2)
+                return
+            }
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "无法导入这个皮肤"
+            alert.informativeText = "「\(url.lastPathComponent)」：\(reason)"
+            alert.addButton(withTitle: "知道了")
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
+    }
+
+    @objc private func selectCustomSkin(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        CatSettings.shared.customSkin = id
+        dressingRoom?.refresh()
+        settingsWindow?.refresh()
+    }
+
+    @objc private func deleteCustomSkin(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, let skin = SkinLibrary.shared.skin(id: id) else { return }
+        let alert = NSAlert()
+        alert.messageText = "删除皮肤「\(skin.name)」？"
+        alert.informativeText = "会从皮肤文件夹里删除这个文件，删除后需要重新导入。"
+        alert.addButton(withTitle: "删除")
+        alert.addButton(withTitle: "取消")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if !SkinLibrary.shared.remove(id: id) {
+            let failed = NSAlert()
+            failed.messageText = "删除失败"
+            failed.informativeText = "无法删除 \(SkinLibrary.directory.appendingPathComponent("\(id).kurocat").path)"
+            failed.runModal()
+            return
+        }
+        if CatSettings.shared.customSkin == id { CatSettings.shared.customSkin = "" }
+        dressingRoom?.refresh()
+        settingsWindow?.refresh()
     }
 
     @objc private func selectKeyboardTheme(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let theme = KeyboardTheme(rawValue: raw) else { return }
+        CatSettings.shared.customKeyboard = ""
         CatSettings.shared.keyboardTheme = theme
+    }
+
+    @objc private func selectCustomKeyboard(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        CatSettings.shared.customKeyboard = id
+    }
+
+    @objc private func openKeyboardPlaza() {
+        if let url = URL(string: Self.keyboardPlazaURLString) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openKeyboardsFolder() {
+        let dir = KeyboardSkinLibrary.directory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(dir)
+    }
+
+    @objc private func promptImportKeyboardSkin() {
+        let en = CatSettings.shared.isEnglish
+        let panel = NSOpenPanel()
+        panel.title = en ? "Choose Keyboard Skin (.kurokb / .json)" : "选择键盘皮肤文件 (.kurokb / .json)"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedFileTypes = ["kurokb", "json"]
+        NSApp.activate(ignoringOtherApps: true)
+        if panel.runModal() == .OK, let url = panel.url {
+            importKeyboardSkin(from: url)
+        }
+    }
+
+    private func importKeyboardSkin(from url: URL) {
+        do {
+            let id = try KeyboardSkinLibrary.shared.importFile(url)
+            CatSettings.shared.customKeyboard = id
+            let kb = KeyboardSkinLibrary.shared.skin(id: id)
+            var message = "已换上键盘皮肤「\(kb?.name ?? "新键盘")」"
+            if let author = kb?.author, !author.isEmpty { message += "（作者：\(author)）" }
+            dressingRoom?.setStatus("✓ " + message, kind: 1)
+            overlayWindow.catView.needsDisplay = true
+            settingsWindow?.refresh()
+        } catch {
+            let en = CatSettings.shared.isEnglish
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = en ? "Failed to Import Keyboard Skin" : "无法导入这个键盘皮肤"
+            alert.informativeText = "「\(url.lastPathComponent)」：\(error.localizedDescription)"
+            alert.addButton(withTitle: en ? "OK" : "知道了")
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
+    }
+
+    @objc private func deleteCustomKeyboard(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, let kb = KeyboardSkinLibrary.shared.skin(id: id) else { return }
+        let alert = NSAlert()
+        alert.messageText = "删除键盘皮肤「\(kb.name)」？"
+        alert.informativeText = "会从键盘皮肤文件夹里删除这个文件，删除后需要重新导入。"
+        alert.addButton(withTitle: "删除")
+        alert.addButton(withTitle: "取消")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if !KeyboardSkinLibrary.shared.remove(id: id) {
+            let failed = NSAlert()
+            failed.messageText = "删除失败"
+            failed.informativeText = "无法删除 \(KeyboardSkinLibrary.directory.appendingPathComponent("\(id).kurokb").path)"
+            failed.runModal()
+            return
+        }
+        if CatSettings.shared.customKeyboard == id { CatSettings.shared.customKeyboard = "" }
+        settingsWindow?.refresh()
     }
 
     @objc private func selectEyeTheme(_ sender: NSMenuItem) {
@@ -499,7 +882,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let keys: [PhysicalKey] = [.w, .a, .s, .d, .f, .j, .o, .e, .space, .leftShift]
         for (idx, k) in keys.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(idx) * 0.13) { [weak self] in
-                self?.overlayWindow.catView.physics.triggerKeyDown(k)
+                guard let self else { return }
+                let now = CACurrentMediaTime()
+                self.lastDemoKeyTime = now
+                self.overlayWindow.catView.physics.triggerKeyDown(k, at: now)
             }
         }
     }
@@ -521,16 +907,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Auto Update Checker & In-App Self-Updater
 
-    private static let updatePageURLString = "https://kurocat-download.app.workbuddy.host/?sharecode=JVAABIVZ7L"
-    private static let updateVersionJSONURLString = "https://kurocat-download.app.workbuddy.host/version.json?sharecode=JVAABIVZ7L"
-    private static let defaultMacAssetURLString = "https://kurocat-download.app.workbuddy.host/downloads/KuroCat-macOS-universal.zip?sharecode=JVAABIVZ7L"
+    private static let updatePageURLString = "https://github.com/maireri/KuroCat/releases"
+    private static let updateVersionJSONURLString = "https://api.github.com/repos/maireri/KuroCat/releases/latest"
+    private static let defaultMacAssetURLString = "https://github.com/maireri/KuroCat/releases/latest/download/KuroCat-macOS-universal.zip"
 
     @objc private func manualCheckForUpdates() {
-        checkForUpdates(manual: true)
+        if let url = URL(string: Self.updatePageURLString) { NSWorkspace.shared.open(url) }
     }
 
     @objc private func openUpdateDownload() {
-        performInAppUpdate()
+        if let url = URL(string: Self.updatePageURLString) { NSWorkspace.shared.open(url) }
     }
 
     private func parseUpdateInfo(from data: Data) -> (tag: String, pageURL: URL?, assetURL: URL?)? {

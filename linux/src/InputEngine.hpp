@@ -9,7 +9,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <cctype>
 #include <cmath>
+#include <fstream>
 #include <dirent.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -94,7 +96,18 @@ public:
         }
 
         for (const auto& e : batch) {
-            if (e.isMouseBtn) {
+            if (e.isResetKeys) {
+                if (!activeKeys.empty() && (nowSeconds() - lastKeyActivityTime > 0.30)) {
+                    auto prev = activeKeys;
+                    evdevKeys_.clear();
+                    xi2Keys_.clear();
+                    activeKeys.clear();
+                    pressedOrder.clear();
+                    for (PhysicalKey k : prev) {
+                        if (onKeyUp) onKeyUp(k);
+                    }
+                }
+            } else if (e.isMouseBtn) {
                 updateMouseButton(e.mouseButton, e.isDown);
             } else {
                 setKeyState(e.key, e.isDown, e.fromEvdev);
@@ -132,9 +145,50 @@ public:
         }
 
         double now = nowSeconds();
+        if (now - lastTabletScanTime_ > 2.5) {
+            refreshTabletPresence(now);
+        }
         while (!recentKeyTimes_.empty() && now - recentKeyTimes_.front() > 10.0) {
             recentKeyTimes_.pop_front();
         }
+    }
+
+    bool isTabletConnected() const {
+        return tabletHardwareFound_;
+    }
+
+    void refreshTabletPresence(double now) {
+        lastTabletScanTime_ = now;
+        bool found = false;
+        if (DIR* dir = opendir("/sys/class/input")) {
+            struct dirent* ent = nullptr;
+            while ((ent = readdir(dir)) != nullptr) {
+                if (std::strncmp(ent->d_name, "event", 5) != 0) continue;
+                std::string namePath = std::string("/sys/class/input/") + ent->d_name + "/device/name";
+                std::ifstream nf(namePath);
+                std::string name;
+                if (!nf || !std::getline(nf, name)) continue;
+                for (char& ch : name) ch = (char)std::tolower((unsigned char)ch);
+                if (name.find("touchpad") != std::string::npos || name.find("trackpad") != std::string::npos) continue;
+                if (name.find("wacom") != std::string::npos ||
+                    name.find("huion") != std::string::npos ||
+                    name.find("xp-pen") != std::string::npos ||
+                    name.find("gaomon") != std::string::npos ||
+                    name.find("ugee") != std::string::npos ||
+                    name.find("veikk") != std::string::npos ||
+                    name.find("xencelabs") != std::string::npos ||
+                    name.find("hanvon") != std::string::npos ||
+                    name.find("parblo") != std::string::npos ||
+                    name.find("stylus") != std::string::npos ||
+                    name.find("pen") != std::string::npos ||
+                    name.find("tablet") != std::string::npos) {
+                    found = true;
+                    break;
+                }
+            }
+            closedir(dir);
+        }
+        tabletHardwareFound_ = found;
     }
 
     int currentKPM() const {
@@ -150,6 +204,7 @@ private:
         bool isMouseBtn = false;
         bool fromEvdev = false;
         bool isDown = false;
+        bool isResetKeys = false;
         int mouseButton = 0;
         PhysicalKey key = PhysicalKey::None;
     };
@@ -166,6 +221,8 @@ private:
     float xCursorX_ = 0.0f;
     float xCursorY_ = 0.0f;
     bool cursorInitialized_ = false;
+    bool tabletHardwareFound_ = false;
+    double lastTabletScanTime_ = -10.0;
 
     std::unordered_set<PhysicalKey> evdevKeys_;
     std::unordered_set<PhysicalKey> xi2Keys_;
@@ -174,12 +231,17 @@ private:
     void pushKey(PhysicalKey k, bool isDown, bool fromEvdev) {
         if (k == PhysicalKey::None) return;
         std::lock_guard<std::mutex> lk(mu_);
-        queue_.push_back({ false, fromEvdev, isDown, 0, k });
+        queue_.push_back({ false, fromEvdev, isDown, false, 0, k });
     }
 
     void pushMouseBtn(int btn, bool isDown, bool fromEvdev) {
         std::lock_guard<std::mutex> lk(mu_);
-        queue_.push_back({ true, fromEvdev, isDown, btn, PhysicalKey::None });
+        queue_.push_back({ true, fromEvdev, isDown, false, btn, PhysicalKey::None });
+    }
+
+    void pushResetKeys() {
+        std::lock_guard<std::mutex> lk(mu_);
+        queue_.push_back({ false, false, false, true, 0, PhysicalKey::None });
     }
 
     void setKeyState(PhysicalKey key, bool isDown, bool fromEvdev) {
@@ -189,7 +251,7 @@ private:
             else { evdevKeys_.erase(key); xi2Keys_.erase(key); }
         } else {
             if (isDown) xi2Keys_.insert(key);
-            else { xi2Keys_.erase(key); if (!isEvdevActive) evdevKeys_.erase(key); }
+            else { xi2Keys_.erase(key); evdevKeys_.erase(key); }
         }
 
         activeKeys = evdevKeys_;
@@ -280,6 +342,15 @@ private:
                     hasXCursor_ = true;
                     xCursorX_ = (float)rx;
                     xCursorY_ = (float)ry;
+                }
+                if (nowT - lastPointerQuery > 0.35) {
+                    char keys[32] = {};
+                    XQueryKeymap(dpy, keys);
+                    bool anyHeld = false;
+                    for (int i = 0; i < 32; ++i) {
+                        if (keys[i] != 0) { anyHeld = true; break; }
+                    }
+                    if (!anyHeld) pushResetKeys();
                 }
                 lastPointerQuery = nowT;
                 pointerQueryPending = false;

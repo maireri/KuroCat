@@ -15,7 +15,7 @@ func render(_ original: Bool, _ coat: CatCoatTheme, _ closure: CGFloat, _ left: 
         ctx.translateBy(x:64,y:64)
         ctx.scaleBy(x:2,y:2)
         if original { OriginalRenderer.drawEye3D(in:ctx,isLeft:left,yawRad:0,pitchRad:0,physics:physics,eyeTheme:theme,coat:coat) }
-        else { FixedRenderer.drawEye3D(in:ctx,isLeft:left,yawRad:0,pitchRad:0,physics:physics,eyeTheme:theme,coat:coat) }
+        else { FixedRenderer.drawEye3D(in:ctx,isLeft:left,yawRad:0,pitchRad:0,physics:physics,eyeTheme:theme,skin:SkinSpec.builtIn(coat)) }
     }
     return Array(UnsafeBufferPointer(start:ctx.data!.assumingMemoryBound(to:UInt8.self),count:size*size*4))
 }

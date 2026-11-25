@@ -2,6 +2,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <unordered_set>
+#include <unordered_map>
 #include <vector>
 #include <deque>
 #include <functional>
@@ -37,13 +38,46 @@ public:
 
     int totalKeystrokesToday = 0;
     bool isRawInputRegistered = false;
+    HHOOK kbHook_ = nullptr;
 
     std::function<void(PhysicalKey)> onKeyDown;
     std::function<void(PhysicalKey)> onKeyUp;
     std::function<void(int, bool)> onMouseClick;
 
+    static inline InputEngine* s_hookInstance = nullptr;
+
+    static LRESULT CALLBACK lowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+        if (nCode == HC_ACTION && s_hookInstance && lParam) {
+            const KBDLLHOOKSTRUCT* kb = reinterpret_cast<const KBDLLHOOKSTRUCT*>(lParam);
+            bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
+            bool isUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
+            if (isDown || isUp) {
+                USHORT flags = (kb->flags & LLKHF_EXTENDED) ? RI_KEY_E0 : 0;
+                PhysicalKey key = mapRawInputKey((USHORT)kb->scanCode, flags, (USHORT)kb->vkCode);
+                if (key != PhysicalKey::None) {
+                    s_hookInstance->setRawKeyState(key, isDown);
+                }
+            }
+        }
+        return CallNextHookEx(nullptr, nCode, wParam, lParam);
+    }
+
+    void installKeyboardHook() {
+        if (kbHook_) return;
+        s_hookInstance = this;
+        kbHook_ = SetWindowsHookExW(WH_KEYBOARD_LL, lowLevelKeyboardProc, GetModuleHandleW(nullptr), 0);
+    }
+
+    void uninstallKeyboardHook() {
+        if (kbHook_) {
+            UnhookWindowsHookEx(kbHook_);
+            kbHook_ = nullptr;
+        }
+        if (s_hookInstance == this) s_hookInstance = nullptr;
+    }
+
     bool registerRawInput(HWND hwnd) {
-        RAWINPUTDEVICE rid[2] = {};
+        RAWINPUTDEVICE rid[3] = {};
         // Keyboard (Generic Desktop 0x01, Usage 0x06)
         rid[0].usUsagePage = 0x01;
         rid[0].usUsage = 0x06;
@@ -54,10 +88,68 @@ public:
         rid[1].usUsage = 0x02;
         rid[1].dwFlags = RIDEV_INPUTSINK;
         rid[1].hwndTarget = hwnd;
+        // Graphics Tablet / Pen Digitizer (Digitizer 0x0D, Usage 0x02 Pen)
+        rid[2].usUsagePage = 0x0D;
+        rid[2].usUsage = 0x02;
+        rid[2].dwFlags = RIDEV_INPUTSINK;
+        rid[2].hwndTarget = hwnd;
 
-        isRawInputRegistered = (RegisterRawInputDevices(rid, 2, sizeof(RAWINPUTDEVICE)) != FALSE);
+        isRawInputRegistered = (RegisterRawInputDevices(rid, 3, sizeof(RAWINPUTDEVICE)) != FALSE);
+        if (!isRawInputRegistered) {
+            isRawInputRegistered = (RegisterRawInputDevices(rid, 2, sizeof(RAWINPUTDEVICE)) != FALSE);
+        }
+        refreshTabletPresence(nowSeconds());
         GetCursorPos(&lastCursorPos);
         return isRawInputRegistered;
+    }
+
+    bool isTabletConnected() const {
+        if (tabletHardwareFound_) return true;
+        if (lastTabletEventTime_ > 0.0 && (nowSeconds() - lastTabletEventTime_) < 600.0) return true;
+        return false;
+    }
+
+    void refreshTabletPresence(double now) {
+        lastTabletScanTime_ = now;
+        UINT numDevices = 0;
+        if (GetRawInputDeviceList(nullptr, &numDevices, sizeof(RAWINPUTDEVICELIST)) != 0 || numDevices == 0) {
+            tabletHardwareFound_ = false;
+            return;
+        }
+        std::vector<RAWINPUTDEVICELIST> list(numDevices);
+        if (GetRawInputDeviceList(list.data(), &numDevices, sizeof(RAWINPUTDEVICELIST)) == (UINT)-1) {
+            tabletHardwareFound_ = false;
+            return;
+        }
+        auto isKnownTabletVid = [](DWORD vid) -> bool {
+            switch (vid) {
+                case 0x056A: // Wacom
+                case 0x256C: // Huion / Gaomon
+                case 0x28BD: // XP-Pen / UGEE
+                case 0x5543: // UC-Logic / UGEE
+                case 0x2FEB: // Veikk
+                case 0x2179: // Hanvon
+                case 0x33F8: // Xencelabs
+                case 0x2FBB: // Parblo
+                case 0x1B96: // N-Trig
+                    return true;
+                default: return false;
+            }
+        };
+        bool found = false;
+        for (UINT i = 0; i < numDevices; ++i) {
+            if (list[i].dwType != RIM_TYPEHID) continue;
+            RID_DEVICE_INFO info = {};
+            info.cbSize = sizeof(info);
+            UINT cb = sizeof(info);
+            if (GetRawInputDeviceInfoW(list[i].hDevice, RIDI_DEVICEINFO, &info, &cb) == (UINT)-1) continue;
+            if (isKnownTabletVid(info.hid.dwVendorId) ||
+                (info.hid.usUsagePage == 0x0D && (info.hid.usUsage == 0x01 || info.hid.usUsage == 0x02))) {
+                found = true;
+                break;
+            }
+        }
+        tabletHardwareFound_ = found;
     }
 
     /// Drops every held key / mouse button and re-syncs the cursor. Called after Win+L unlock,
@@ -130,11 +222,19 @@ public:
             if (m.usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_DOWN) updateMouseButton(2, true);
             if (m.usButtonFlags & RI_MOUSE_MIDDLE_BUTTON_UP)   updateMouseButton(2, false);
             if (m.usButtonFlags & RI_MOUSE_WHEEL)              lastMouseMoveTime = now;
+        } else if (raw->header.dwType == RIM_TYPEHID) {
+            double now = nowSeconds();
+            lastTabletEventTime_ = now;
+            lastMouseMoveTime = now;
         }
     }
 
     /// Called at 60Hz from main loop to compute smooth cursor velocity (works in desktop & locked-cursor games!).
     void pollMouse(float dt) {
+        double now = nowSeconds();
+        if (now - lastTabletScanTime_ > 2.5) {
+            refreshTabletPresence(now);
+        }
         POINT cur = lastCursorPos;
         GetCursorPos(&cur);
         float dx = (float)(cur.x - lastCursorPos.x);
@@ -159,7 +259,7 @@ public:
             mouseVelocity.y *= 0.82f;
         }
 
-        double now = nowSeconds();
+        now = nowSeconds();
         pollAsyncFallback(now);
         while (!recentKeyTimes_.empty() && now - recentKeyTimes_.front() > 10.0) {
             recentKeyTimes_.pop_front();
@@ -174,15 +274,21 @@ private:
     std::deque<double> recentKeyTimes_;
     std::unordered_set<PhysicalKey> rawKeys_;
     std::unordered_set<PhysicalKey> asyncKeys_;
+    std::unordered_map<PhysicalKey, double> rawKeyDownTime_;
     double lastRawKbTime_ = 0.0;
     double lastRawMouseTime_ = 0.0;
+    bool tabletHardwareFound_ = false;
+    double lastTabletEventTime_ = 0.0;
+    double lastTabletScanTime_ = 0.0;
 
     void setRawKeyState(PhysicalKey key, bool isDown) {
         if (isDown) {
             rawKeys_.insert(key);
+            rawKeyDownTime_[key] = nowSeconds();
         } else {
             rawKeys_.erase(key);
             asyncKeys_.erase(key);
+            rawKeyDownTime_.erase(key);
         }
         recomputeUnifiedKeys(key);
     }
@@ -224,12 +330,20 @@ private:
             bool isDown = (GetAsyncKeyState(e.vk) & 0x8000) != 0;
             bool inRaw = rawKeys_.count(e.key) > 0;
             bool inAsync = asyncKeys_.count(e.key) > 0;
+            bool rawStale = false;
+            if (inRaw) {
+                auto it = rawKeyDownTime_.find(e.key);
+                rawStale = rawIdle || (it == rawKeyDownTime_.end()) || ((now - it->second) > 0.25);
+            }
             if (isDown && !inRaw && !inAsync) {
                 asyncKeys_.insert(e.key);
                 recomputeUnifiedKeys(e.key);
-            } else if (!isDown && (inAsync || (rawIdle && inRaw))) {
+            } else if (!isDown && (inAsync || rawStale)) {
                 asyncKeys_.erase(e.key);
-                if (rawIdle) rawKeys_.erase(e.key);
+                if (rawStale) {
+                    rawKeys_.erase(e.key);
+                    rawKeyDownTime_.erase(e.key);
+                }
                 recomputeUnifiedKeys(e.key);
             }
         }

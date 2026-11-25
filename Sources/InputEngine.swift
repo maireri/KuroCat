@@ -33,7 +33,7 @@ final class InputEngine {
     private(set) var activeKeys = Set<PhysicalKey>()
     private(set) var pressedOrder: [PhysicalKey] = []
 
-    // Mouse state
+    // Mouse & Graphics Tablet / Stylus state
     private(set) var leftMouseDown = false
     private(set) var rightMouseDown = false
     private(set) var otherMouseDown = false
@@ -42,6 +42,17 @@ final class InputEngine {
     private(set) var lastKeyActivityTime: CFTimeInterval = 0
     private(set) var lastMouseLocation: CGPoint = NSEvent.mouseLocation
     private(set) var mouseVelocity: CGVector = .zero
+    private(set) var penPressure: CGFloat = 0.0
+    private(set) var isPenInProximity = false
+    private var tabletHardwareDevices = Set<UInt>()
+    private var lastTabletEventTime: CFTimeInterval = 0
+    private var tabletHIDManager: IOHIDManager?
+
+    var isTabletConnected: Bool {
+        if !tabletHardwareDevices.isEmpty { return true }
+        if lastTabletEventTime > 0 && (CACurrentMediaTime() - lastTabletEventTime) < 600.0 { return true }
+        return false
+    }
 
     // Stats
     private(set) var totalKeystrokesToday: Int = 0
@@ -54,6 +65,19 @@ final class InputEngine {
     private var eventTapRunLoopSource: CFRunLoopSource?
     private var localMonitor: Any?
     private var permissionCheckTimer: Timer?
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private var lastReconcileTime: CFTimeInterval = 0
+    private var keyDownTimes: [PhysicalKey: CFTimeInterval] = [:]
+
+    private static let keyToCGCodes: [PhysicalKey: [CGKeyCode]] = {
+        var map: [PhysicalKey: [CGKeyCode]] = [:]
+        for code: UInt16 in 0..<128 {
+            if let key = PhysicalKey.fromCGKeyCode(code) {
+                map[key, default: []].append(CGKeyCode(code))
+            }
+        }
+        return map
+    }()
 
     private(set) var isHIDActive = false
     private(set) var isTapActive = false
@@ -66,24 +90,23 @@ final class InputEngine {
 
     private var lastModifierFlags: CGEventFlags = []
 
+    // The render and hit-test paths read status every frame. Refresh these
+    // permissions at startup and in the existing watchdog instead.
+    private var inputMonitoringAllowed = false
+    private var keyboardMonitoringAllowed = false
+
     var status: InputEngineStatus {
-        guard hasKeyboardGlobalPermission else { return .needsPermission }
+        guard keyboardMonitoringAllowed else { return .needsPermission }
         if isHIDActive && isTapActive { return .fullHardware }
         if isHIDActive { return .hidOnly }
         if isTapActive { return .eventTapOnly }
         return .needsRestart
     }
 
-    var hasInputMonitoringPermission: Bool {
-        CGPreflightListenEventAccess() || (IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted)
-    }
-
-    var hasAccessibilityPermission: Bool {
-        AXIsProcessTrusted()
-    }
-
-    var hasKeyboardGlobalPermission: Bool {
-        hasInputMonitoringPermission || hasAccessibilityPermission
+    private func refreshPermissions() {
+        inputMonitoringAllowed = CGPreflightListenEventAccess()
+            || IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+        keyboardMonitoringAllowed = inputMonitoringAllowed || AXIsProcessTrusted()
     }
 
     var currentKPM: Int {
@@ -99,30 +122,44 @@ final class InputEngine {
 
     func start() {
         startLocalFallbackMonitor()
+        startTabletHardwareMonitor()
+        refreshPermissions()
         tryStartHID()
         tryStartEventTap()
         notifyStatus()
+
+        let wsCenter = NSWorkspace.shared.notificationCenter
+        let resetNames: [NSNotification.Name] = [
+            NSWorkspace.willSleepNotification,
+            NSWorkspace.screensDidSleepNotification,
+            NSWorkspace.sessionDidResignActiveNotification
+        ]
+        for name in resetNames {
+            let obs = wsCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.resetAllKeys()
+            }
+            workspaceObservers.append(obs)
+        }
 
         // Periodically check if the user just granted Input Monitoring permission
         permissionCheckTimer?.invalidate()
         let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
             guard let self else { return }
             let prevStatus = self.status
-            let inputAllowed = self.hasInputMonitoringPermission
-            let keyboardAllowed = inputAllowed || self.hasAccessibilityPermission
-            if !inputAllowed && self.isHIDActive {
+            self.refreshPermissions()
+            if !self.inputMonitoringAllowed && self.isHIDActive {
                 self.stopHID()
             }
-            if !keyboardAllowed && self.isTapActive {
+            if !self.keyboardMonitoringAllowed && self.isTapActive {
                 self.stopEventTap()
             }
             if let tap = self.eventTap, !CFMachPortIsValid(tap) {
                 self.stopEventTap()
             }
-            if !self.isHIDActive && inputAllowed {
+            if !self.isHIDActive && self.inputMonitoringAllowed {
                 self.tryStartHID()
             }
-            if !self.isTapActive && keyboardAllowed {
+            if !self.isTapActive && self.keyboardMonitoringAllowed {
                 self.tryStartEventTap()
             } else if self.isTapActive, let tap = self.eventTap, !CGEvent.tapIsEnabled(tap: tap) {
                 CGEvent.tapEnable(tap: tap, enable: true)
@@ -141,7 +178,13 @@ final class InputEngine {
     func stop() {
         permissionCheckTimer?.invalidate()
         permissionCheckTimer = nil
+        let wsCenter = NSWorkspace.shared.notificationCenter
+        for obs in workspaceObservers {
+            wsCenter.removeObserver(obs)
+        }
+        workspaceObservers.removeAll()
         stopHID()
+        stopTabletHardwareMonitor()
         stopEventTap()
         if let m = localMonitor {
             NSEvent.removeMonitor(m)
@@ -185,13 +228,179 @@ final class InputEngine {
         if recentKeyTimes.count > 120 {
             recentKeyTimes.removeAll { now - $0 > 12.0 }
         }
+        reconcileStuckKeys(now: now)
+    }
+
+    private func isKeyPhysicallyDown(_ key: PhysicalKey) -> Bool {
+        if key == .fn {
+            return CGEventSource.flagsState(.hidSystemState).contains(.maskSecondaryFn)
+                && CGEventSource.flagsState(.combinedSessionState).contains(.maskSecondaryFn)
+        }
+        if key == .capsLock {
+            return CGEventSource.keyState(.hidSystemState, key: 57)
+                && CGEventSource.keyState(.combinedSessionState, key: 57)
+        }
+        guard let codes = Self.keyToCGCodes[key] else { return false }
+        return codes.contains {
+            CGEventSource.keyState(.hidSystemState, key: $0)
+                && CGEventSource.keyState(.combinedSessionState, key: $0)
+        }
+    }
+
+    private func reconcileStuckKeys(now: CFTimeInterval) {
+        guard now - lastReconcileTime >= 0.20 else { return }
+        lastReconcileTime = now
+
+        // Always keep pressedOrder strictly synced with activeKeys (guards against stopHID/stopEventTap races).
+        if pressedOrder.count != activeKeys.count {
+            pressedOrder.removeAll { !activeKeys.contains($0) }
+        }
+
+        if !activeKeys.isEmpty {
+            var stale: [PhysicalKey] = []
+            for key in activeKeys {
+                let heldFor = now - (keyDownTimes[key] ?? 0)
+                // Check per-key (not global lastKeyActivityTime) so a stuck key releases
+                // immediately even while the user keeps typing other keys!
+                if heldFor > 0.25 && !isKeyPhysicallyDown(key) {
+                    stale.append(key)
+                }
+            }
+            if !stale.isEmpty {
+                for key in stale {
+                    hidPressedKeys.remove(key)
+                    tapPressedKeys.remove(key)
+                    keyDownTimes.removeValue(forKey: key)
+                }
+                recomputeUnifiedKeys()
+                for key in stale {
+                    onKeyUp?(key)
+                }
+            }
+        }
+
+        if (leftMouseDown || rightMouseDown || otherMouseDown) && (now - lastMouseClickTime > 0.35) {
+            let buttons = NSEvent.pressedMouseButtons
+            if leftMouseDown && (buttons & 1) == 0 { updateMouseButton(0, isDown: false) }
+            if rightMouseDown && (buttons & 2) == 0 { updateMouseButton(1, isDown: false) }
+            if otherMouseDown && (buttons & ~3) == 0 { updateMouseButton(2, isDown: false) }
+        }
+    }
+
+    func resetAllKeys() {
+        let prev = activeKeys
+        hidPressedKeys.removeAll()
+        tapPressedKeys.removeAll()
+        keyDownTimes.removeAll()
+        pressedOrder.removeAll()
+        recomputeUnifiedKeys()
+        for key in prev {
+            onKeyUp?(key)
+        }
+        if leftMouseDown { updateMouseButton(0, isDown: false) }
+        if rightMouseDown { updateMouseButton(1, isDown: false) }
+        if otherMouseDown { updateMouseButton(2, isDown: false) }
+    }
+
+    // MARK: - Graphics Tablet / Stylus Detection (USB/Bluetooth HID + Live Tablet Events)
+
+    private static let knownTabletVendorIDs: Set<Int> = [
+        0x056A, // Wacom
+        0x256C, // Huion / Gaomon
+        0x28BD, // XP-Pen / UGEE / Xencelabs
+        0x5543, // UC-Logic / UGEE
+        0x2FEB, // Veikk
+        0x2179, // Hanvon
+        0x33F8, // Xencelabs
+        0x2FBB, // Parblo
+        0x1B96  // N-Trig
+    ]
+
+    private func isDrawingTabletDevice(_ device: IOHIDDevice) -> Bool {
+        let vid = (IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? NSNumber)?.intValue ?? 0
+        let usagePage = (IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? NSNumber)?.intValue ?? 0
+        let usage = (IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? NSNumber)?.intValue ?? 0
+        // Apple built-in trackpads use 0x05AC + Digitizer(0x0D)/TouchPad(0x05) — only count Apple if explicit Pen(0x02)
+        if vid == 0x05AC {
+            return usagePage == kHIDPage_Digitizer && usage == kHIDUsage_Dig_Pen
+        }
+        if Self.knownTabletVendorIDs.contains(vid) {
+            return true
+        }
+        if usagePage == kHIDPage_Digitizer && (usage == kHIDUsage_Dig_Pen || usage == kHIDUsage_Dig_Digitizer) {
+            return true
+        }
+        return false
+    }
+
+    private func startTabletHardwareMonitor() {
+        guard tabletHIDManager == nil else { return }
+        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        var matches: [[String: Any]] = [
+            [
+                kIOHIDDeviceUsagePageKey as String: kHIDPage_Digitizer,
+                kIOHIDDeviceUsageKey as String: kHIDUsage_Dig_Pen
+            ],
+            [
+                kIOHIDDeviceUsagePageKey as String: kHIDPage_Digitizer,
+                kIOHIDDeviceUsageKey as String: kHIDUsage_Dig_Digitizer
+            ]
+        ]
+        for vid in Self.knownTabletVendorIDs {
+            matches.append([kIOHIDVendorIDKey as String: vid])
+        }
+        IOHIDManagerSetDeviceMatchingMultiple(manager, matches as CFArray)
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        IOHIDManagerRegisterDeviceMatchingCallback(manager, { ctx, _, _, device in
+            guard let ctx else { return }
+            let engine = Unmanaged<InputEngine>.fromOpaque(ctx).takeUnretainedValue()
+            if engine.isDrawingTabletDevice(device) {
+                engine.tabletHardwareDevices.insert(UInt(bitPattern: Unmanaged.passUnretained(device).toOpaque()))
+            }
+        }, context)
+        IOHIDManagerRegisterDeviceRemovalCallback(manager, { ctx, _, _, device in
+            guard let ctx else { return }
+            let engine = Unmanaged<InputEngine>.fromOpaque(ctx).takeUnretainedValue()
+            engine.tabletHardwareDevices.remove(UInt(bitPattern: Unmanaged.passUnretained(device).toOpaque()))
+        }, context)
+        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
+        let res = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        if res == kIOReturnSuccess {
+            tabletHIDManager = manager
+            if let set = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> {
+                for dev in set where isDrawingTabletDevice(dev) {
+                    tabletHardwareDevices.insert(UInt(bitPattern: Unmanaged.passUnretained(dev).toOpaque()))
+                }
+            }
+        } else {
+            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
+        }
+    }
+
+    private func stopTabletHardwareMonitor() {
+        if let manager = tabletHIDManager {
+            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+            tabletHIDManager = nil
+        }
+        tabletHardwareDevices.removeAll()
+    }
+
+    private func checkTabletEvent(_ event: CGEvent) {
+        let subtype = event.getIntegerValueField(.mouseEventSubtype)
+        if subtype == 1 || subtype == 2 {
+            lastTabletEventTime = CACurrentMediaTime()
+            isPenInProximity = true
+            let p = CGFloat(event.getDoubleValueField(.tabletEventPointPressure))
+            if p > 0.001 { penPressure = p }
+        }
     }
 
     // MARK: - Layer 1: IOHIDManager (Raw Kernel HID — Best for Games + IME)
 
     private func tryStartHID() {
         guard !isHIDActive else { return }
-        guard hasInputMonitoringPermission else { return }
+        guard inputMonitoringAllowed else { return }
 
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
 
@@ -282,15 +491,16 @@ final class InputEngine {
         guard !isTapActive else { return }
         // Only activate keyboard EventTap when macOS actually granted Input Monitoring or Accessibility;
         // otherwise listenOnly tap silently drops keyboard events while returning non-nil!
-        guard hasKeyboardGlobalPermission else { return }
+        guard keyboardMonitoringAllowed else { return }
 
         var mask: CGEventMask = 0
         let types: [CGEventType] = [
             .keyDown, .keyUp, .flagsChanged,
-            .leftMouseDown, .leftMouseUp,
+            .leftMouseDown, .leftMouseUp, .leftMouseDragged,
             .rightMouseDown, .rightMouseUp,
             .otherMouseDown, .otherMouseUp,
-            .scrollWheel
+            .scrollWheel,
+            .tabletPointer, .tabletProximity
         ]
         for t in types {
             mask |= (1 << t.rawValue)
@@ -353,8 +563,15 @@ final class InputEngine {
             // Ignore OS auto-repeat events so holding W in a game doesn't spam floating keycaps!
             let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
             let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-            if let key = PhysicalKey.fromCGKeyCode(keyCode) {
-                if !isRepeat {
+            if let key = PhysicalKey.fromCGKeyCode(keyCode), !isRepeat {
+                // On macOS (especially 13.x Chinese IME / auto-pairing editors), typing `(` or `（`
+                // injects synthetic CGEvent keyDowns (e.g. `)`, `9`, `0`, Left Arrow) with NO keyUp.
+                // When kernel HID is active and the key isn't physically down, treat it as a brief tap
+                // instead of holding it in tapPressedKeys so the right paw never gets glued to the keyboard!
+                if isHIDActive && !hidPressedKeys.contains(key) && !isKeyPhysicallyDown(key) {
+                    setKeyState(key, isDown: true, fromHID: false)
+                    setKeyState(key, isDown: false, fromHID: false)
+                } else {
                     setKeyState(key, isDown: true, fromHID: false)
                 }
             }
@@ -367,14 +584,60 @@ final class InputEngine {
             let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
             let flags = event.flags
             if let key = PhysicalKey.fromCGKeyCode(keyCode) {
-                let isDown = isModifierKeyDown(key: key, flags: flags)
-                setKeyState(key, isDown: isDown, fromHID: false)
+                if key == .capsLock {
+                    // CapsLock's .maskAlphaShift is a lock toggle, not a physical hold.
+                    // When HID is active it tracks exact physical press/release; otherwise
+                    // treat flagsChanged as a brief tap so the paw never sticks on CapsLock.
+                    if !isHIDActive {
+                        setKeyState(.capsLock, isDown: true, fromHID: false)
+                        setKeyState(.capsLock, isDown: false, fromHID: false)
+                    }
+                } else {
+                    let isDown = isModifierKeyDown(key: key, flags: flags)
+                    setKeyState(key, isDown: isDown, fromHID: false)
+                }
+            }
+            // If all Shift/Control/Option/Command flags cleared, ensure neither side lingers in tapPressedKeys.
+            if !flags.contains(.maskShift) {
+                if tapPressedKeys.contains(.leftShift) { setKeyState(.leftShift, isDown: false, fromHID: false) }
+                if tapPressedKeys.contains(.rightShift) { setKeyState(.rightShift, isDown: false, fromHID: false) }
+            }
+            if !flags.contains(.maskControl) {
+                if tapPressedKeys.contains(.leftControl) { setKeyState(.leftControl, isDown: false, fromHID: false) }
+                if tapPressedKeys.contains(.rightControl) { setKeyState(.rightControl, isDown: false, fromHID: false) }
+            }
+            if !flags.contains(.maskAlternate) {
+                if tapPressedKeys.contains(.leftOption) { setKeyState(.leftOption, isDown: false, fromHID: false) }
+                if tapPressedKeys.contains(.rightOption) { setKeyState(.rightOption, isDown: false, fromHID: false) }
+            }
+            if !flags.contains(.maskCommand) {
+                if tapPressedKeys.contains(.leftCommand) { setKeyState(.leftCommand, isDown: false, fromHID: false) }
+                if tapPressedKeys.contains(.rightCommand) { setKeyState(.rightCommand, isDown: false, fromHID: false) }
             }
             lastModifierFlags = flags
         case .leftMouseDown:
+            checkTabletEvent(event)
             updateMouseButton(0, isDown: true)
         case .leftMouseUp:
+            checkTabletEvent(event)
+            penPressure = 0.0
             updateMouseButton(0, isDown: false)
+        case .leftMouseDragged:
+            checkTabletEvent(event)
+            lastMouseMoveTime = CACurrentMediaTime()
+        case .tabletPointer:
+            lastTabletEventTime = CACurrentMediaTime()
+            isPenInProximity = true
+            penPressure = CGFloat(event.getDoubleValueField(.tabletEventPointPressure))
+            lastMouseMoveTime = CACurrentMediaTime()
+        case .tabletProximity:
+            let entering = event.getIntegerValueField(.tabletProximityEventEnterProximity) != 0
+            isPenInProximity = entering
+            if entering {
+                lastTabletEventTime = CACurrentMediaTime()
+            } else {
+                penPressure = 0.0
+            }
         case .rightMouseDown:
             updateMouseButton(1, isDown: true)
         case .rightMouseUp:
@@ -391,11 +654,32 @@ final class InputEngine {
     }
 
     private func isModifierKeyDown(key: PhysicalKey, flags: CGEventFlags) -> Bool {
+        let raw = flags.rawValue
         switch key {
-        case .leftShift, .rightShift: return flags.contains(.maskShift)
-        case .leftControl, .rightControl: return flags.contains(.maskControl)
-        case .leftOption, .rightOption: return flags.contains(.maskAlternate)
-        case .leftCommand, .rightCommand: return flags.contains(.maskCommand)
+        case .leftShift:
+            if !flags.contains(.maskShift) { return false }
+            return (raw & 0x0006) != 0 ? (raw & 0x0002) != 0 : true
+        case .rightShift:
+            if !flags.contains(.maskShift) { return false }
+            return (raw & 0x0006) != 0 ? (raw & 0x0004) != 0 : true
+        case .leftControl:
+            if !flags.contains(.maskControl) { return false }
+            return (raw & 0x2001) != 0 ? (raw & 0x0001) != 0 : true
+        case .rightControl:
+            if !flags.contains(.maskControl) { return false }
+            return (raw & 0x2001) != 0 ? (raw & 0x2000) != 0 : true
+        case .leftOption:
+            if !flags.contains(.maskAlternate) { return false }
+            return (raw & 0x0060) != 0 ? (raw & 0x0020) != 0 : true
+        case .rightOption:
+            if !flags.contains(.maskAlternate) { return false }
+            return (raw & 0x0060) != 0 ? (raw & 0x0040) != 0 : true
+        case .leftCommand:
+            if !flags.contains(.maskCommand) { return false }
+            return (raw & 0x0018) != 0 ? (raw & 0x0008) != 0 : true
+        case .rightCommand:
+            if !flags.contains(.maskCommand) { return false }
+            return (raw & 0x0018) != 0 ? (raw & 0x0010) != 0 : true
         case .capsLock: return flags.contains(.maskAlphaShift)
         case .fn: return flags.contains(.maskSecondaryFn)
         default: return false
@@ -445,7 +729,7 @@ final class InputEngine {
                 tapPressedKeys.insert(key)
             } else {
                 tapPressedKeys.remove(key)
-                if !isHIDActive {
+                if !isHIDActive || !isKeyPhysicallyDown(key) {
                     hidPressedKeys.remove(key)
                 }
             }
@@ -457,12 +741,14 @@ final class InputEngine {
         if !wasActive && isNowActive {
             let now = CACurrentMediaTime()
             lastKeyActivityTime = now
+            keyDownTimes[key] = now
             recentKeyTimes.append(now)
             incrementTodayStats()
             pressedOrder.removeAll { $0 == key }
             pressedOrder.append(key)
             onKeyDown?(key)
         } else if wasActive && !isNowActive {
+            keyDownTimes.removeValue(forKey: key)
             pressedOrder.removeAll { $0 == key }
             onKeyUp?(key)
         }
@@ -470,6 +756,10 @@ final class InputEngine {
 
     private func recomputeUnifiedKeys() {
         activeKeys = hidPressedKeys.union(tapPressedKeys)
+        pressedOrder.removeAll { !activeKeys.contains($0) }
+        for k in keyDownTimes.keys where !activeKeys.contains(k) {
+            keyDownTimes.removeValue(forKey: k)
+        }
     }
 
     private func updateMouseButton(_ button: Int, isDown: Bool) {

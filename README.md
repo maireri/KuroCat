@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <b>超轻量级原生桌面宠物 · 打字 & 玩游戏全状态硬件级监听 · 2.5D 球面转头 · 捕猎大圆眼 · 四款皮肤自由切换</b><br/>
+  <b>超轻量级原生桌面宠物 · 打字 & 玩游戏全状态硬件级监听 · 2.5D 球面转头 · 捕猎大圆眼 · 可切换猫咪皮肤</b><br/>
   Native macOS (Swift + CoreGraphics + IOHIDManager) · Windows (C++17 + GDI+ + Raw Input) · Linux / 统信 UOS (C++17 + GTK3/Cairo + XInput2/evdev)
 </p>
 
@@ -29,12 +29,15 @@
   - 快速晃动鼠标时，小猫瞳孔从竖瞳逐渐扩张为超大圆润黑瞳 + 白色高光，身子压低伏击、尾巴加快抽动、全程锁敌不眨眼。
 - **🐾 丰富交互彩蛋**
   - **3 键同时按「用脚按」**：同时按住 3 个及以上按键时，小猫会翘起后脚踩上第 3 个键！
+  - **4 键同时按「用尾巴按」**：刚好按住 4 个按键时，尾巴会绕到第 4 个键上按下去！
+  - **键盘跑马灯流光**：一条彗星状追光沿键盘对角线来回扫过，按住的键越多扫得越快、尾部越长，色相每圈轮转一次，像 RGB 背光。
+  - 上述两个彩蛋都可在右键菜单里单独勾选开关（Windows 注册表 / macOS UserDefaults / Linux config.ini 持久化）。
   - **摸头/摸背互动**：鼠标轻撸猫头会露出惬意闭眼 `— —` 与微光粒子，闲置久了还会打瞌睡冒 `z`。
   - **智能鼠标穿透、开机自启 & 自动更新检测**：透明区域自动穿透不挡操作；玩竞技游戏时可一键开启「完全鼠标穿透（游戏防误触）」，支持一键勾选「开机自动启动」（Windows 注册表 / macOS LaunchAgent / Linux XDG Autostart），启动时自动检测新版本并在菜单栏/托盘提示更新。
-- **🎨 四款皮肤 & 多配色自由搭配**
-  - **猫咪皮肤**：经典小黑猫（原版荧光黄绿瞳）/ 挖煤暹罗猫（暖燕麦奶白 + 2.5D 焦糖面罩 + 巧克力小袜子 + 宝石蓝瞳）/ 美短（银虎斑加白 + 平顶白色额纹）/ 橘白猫（橘色头顶 + 白胸与白手套）
+- **🎨 猫咪皮肤 & 多配色自由搭配**
+  - **猫咪皮肤**：经典小黑猫（原版荧光黄绿瞳）/ 挖煤暹罗猫（暖燕麦奶白 + 2.5D 焦糖面罩 + 巧克力小袜子 + 宝石蓝瞳）/ 美短（银虎斑加白 + 平顶白色额纹）/ 橘白猫（橘色头顶 + 白胸与白手套） / 狸花猫（Windows）
   - **键盘配色**：经典奶白暖黄 / 暗夜极客黑 / 复古奶油灰（支持开关键盘字符、按键气泡与鼠标点击气泡）
-  - **瞳色与缩放**：6 种瞳色、5 档尺寸缩放、今日击键与实时 KPM 统计。
+  - **瞳色与缩放**：6 种瞳色（Windows 另有橄榄金）、5 档尺寸缩放、今日击键与实时 KPM 统计。
 
 ### 四款皮肤 6 态预览
 
@@ -47,6 +50,10 @@
 | <img src="assets/preview_shorthair.jpg" width="420" alt="美短六态预览"/> | <img src="assets/preview_orangeWhite.jpg" width="420" alt="橘白猫六态预览"/> |
 
 新增皮肤的六态图为应用原生绘制：待机、左上转头、右下转头、捕猎、键鼠与第三只脚、摸头闭眼。图中使用可选瞳色「淡金青绿」；在菜单中先选择皮肤，再到「瞳色切换」选择喜欢的配色。
+
+### 狸花猫（Windows）
+
+<img src="assets/preview_tabby_windows.png" width="520" alt="原版小黑猫与狸花猫在坐姿和打字时的对比"/>
 
 ---
 
@@ -136,9 +143,18 @@ KuroCat/
 
 ---
 
-## 🔒 隐私说明
+## 🔒 隐私说明 / Privacy Policy
 
 KuroCat 的所有键盘与鼠标硬件信号**仅在本地内存实时驱动桌宠动画与计数**，**绝不记录按键内容、绝不写日志**；除启动或手动点击「检查更新」时请求官方下载站获取最新版本号外无任何其他联网行为，全部源码完全开源可审计。
+
+KuroCat processes all keyboard and mouse input strictly locally in memory to animate the desktop pet. It does not log keystrokes, collect telemetry, or send personal data to any server.
+
+## 🔏 Code Signing Policy
+
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+- **Committers & Reviewers**: Project maintainers of `chanke17/KuroCat` (source code changes are reviewed and built reproducibly via GitHub Actions).
+- **Approvers**: Repository owner (`chanke17`).
 
 ## 📄 License
 

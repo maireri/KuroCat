@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <b>Ultra-lightweight native desktop pet · Hardware-level full-state capture for typing &amp; gaming · 2.5D spherical head tracking · Hunting boba eyes · 4 switchable skins</b><br/>
+  <b>Ultra-lightweight native desktop pet · Hardware-level full-state capture for typing &amp; gaming · 2.5D spherical head tracking · Hunting boba eyes · Switchable cat skins</b><br/>
   Native macOS (Swift + CoreGraphics + IOHIDManager) · Windows (C++17 + GDI+ + Raw Input) · Linux / UOS (C++17 + GTK3/Cairo + XInput2/evdev)
 </p>
 
@@ -29,14 +29,17 @@
   - Shake your mouse quickly and the cat's pupils dilate from slit pupils into huge round boba eyes with bright highlights—crouching low, wagging its tail faster, and locking onto the cursor without blinking.
 - **🐾 Fun Interactive Details**
   - **3-Key "Hind Paw Press"**: Hold 3 or more keys simultaneously and the cat lifts its hind paw to press the 3rd key!
+  - **4-Key "Tail Press"**: Hold exactly 4 keys and the tail curls over to press the 4th key!
+  - **Keyboard Marquee Backlight**: A comet-like chase light sweeps along the keyboard diagonal — the more keys you hold, the faster it runs and the longer its tail; the hue rotates once per sweep, reading like RGB backlight.
+  - Both easter eggs and the marquee have their own checkable on/off items in the right-click menu (persisted via Windows Registry / macOS UserDefaults / Linux config.ini).
   - **Head / Back Petting**: Gently stroke the cat's head with your cursor to trigger cozy closed eyes `— —` and shimmer particles; leave it idle and it falls asleep with floating `z`s.
   - **Smart Click-Through, Launch at Login & Auto Update Check**: Transparent areas pass clicks through automatically. Toggle **Full Click-Through (Gaming Anti-Misclick)** anytime, enable **Launch at Login** (Windows Registry / macOS LaunchAgent / Linux XDG Autostart), and get automatic update notifications in the menu bar / tray.
-- **🎨 4 Skins & Custom Color Combinations**
-  - **Cat Skins**: Classic Black Cat (neon yellow-green eyes) / Siamese Cat (warm oat cream + 2.5D caramel mask + chocolate socks + sapphire blue eyes) / American Shorthair (silver tabby & white) / Orange & White Cat (orange crown + white chest & mittens)
+- **🎨 Cat Skins & Custom Color Combinations**
+  - **Cat Skins**: Classic Black Cat (neon yellow-green eyes) / Siamese Cat (warm oat cream + 2.5D caramel mask + chocolate socks + sapphire blue eyes) / American Shorthair (silver tabby & white) / Orange & White Cat (orange crown + white chest & mittens) / Brown Mackerel Tabby (Windows)
   - **Keyboard Themes**: Classic Warm Cream / Midnight Geek Black / Retro Cream Gray (toggle key labels, key bubbles, and mouse click bubbles)
-  - **Eye Colors & Scaling**: 6 eye colors, 5 size levels, plus daily keystroke counter and live KPM stats.
+  - **Eye Colors & Scaling**: 6 eye colors (plus Olive Gold on Windows), 5 size levels, plus daily keystroke counter and live KPM stats.
 
-### 6-State Preview of All 4 Skins
+### 6-State Previews
 
 | Classic Black Cat | Siamese Cat |
 | :---: | :---: |
@@ -47,6 +50,10 @@
 | <img src="assets/preview_shorthair.jpg" width="420" alt="American Shorthair preview"/> | <img src="assets/preview_orangeWhite.jpg" width="420" alt="Orange & White Cat preview"/> |
 
 The 6-state previews are natively rendered by the app: Idle, Top-Left Look, Bottom-Right Look, Hunting, Keyboard/Mouse + 3rd Paw, and Petting Closed Eyes.
+
+### Brown Mackerel Tabby (Windows)
+
+<img src="assets/preview_tabby_windows.png" width="520" alt="Classic Black and Brown Mackerel Tabby sitting and typing"/>
 
 ---
 

@@ -151,8 +151,10 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Rename Windows binary
-        run: mv dist/KuroCat.exe dist/KuroCat-Windows-x64.exe
+      - name: Rename and zip Windows binary
+        run: |
+          mv dist/KuroCat.exe dist/KuroCat-Windows-x64.exe
+          (cd dist && zip -q KuroCat-Windows-x64.zip KuroCat-Windows-x64.exe)
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -161,6 +163,7 @@ jobs:
           files: |
             dist/KuroCat-macOS-universal.zip
             dist/KuroCat-Windows-x64.exe
+            dist/KuroCat-Windows-x64.zip
             dist/KuroCat-Linux-amd64.deb
             dist/KuroCat-Linux-x86_64.tar.gz
             dist/KuroCat-Linux-arm64.deb

@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <algorithm>
 #include <cmath>
 #include <linux/input-event-codes.h>
 
@@ -253,6 +254,58 @@ public:
             return canvasPoint(c.x, c.y);
         }
         return canvasPoint(0.5f, 0.5f);
+    }
+
+    struct V2KeyCellInfo {
+        int row;
+        int col;
+        Pt center;
+    };
+
+    /// Bilinear interpolation on Xiao Douni Video 2's angled hand-drawn keyboard surface (`u` left->right, `v` top->bottom in 832x720 V2Space).
+    static Pt v2KbPoint(float u, float v) {
+        constexpr Pt tl = { 242.0f, 336.0f };
+        constexpr Pt tr = { 782.0f, 446.0f };
+        constexpr Pt br = { 584.0f, 586.0f };
+        constexpr Pt bl = {  28.0f, 440.0f };
+        float topX = tl.x + (tr.x - tl.x) * u;
+        float topY = tl.y + (tr.y - tl.y) * u;
+        float botX = bl.x + (br.x - bl.x) * u;
+        float botY = bl.y + (br.y - bl.y) * u;
+        return { topX + (botX - topX) * v, topY + (botY - topY) * v };
+    }
+
+    /// Single source of truth mapping any PhysicalKey -> exact Video 2 keyboard cell (row, col) and V2Space center point.
+    static V2KeyCellInfo v2KeyCellInfo(PhysicalKey key) {
+        constexpr float wellU0 = 0.31f, wellU1 = 0.95f;
+        constexpr float wellV0 = 0.11f, wellV1 = 0.87f;
+        PhysicalKey vk = visualKeyOf(key);
+        if (vk == PhysicalKey::Space) {
+            float su = wellU0 + (wellU1 - wellU0) * (4.0f / 8.0f);
+            float sv = wellV0 + (wellV1 - wellV0) * (3.5f / 4.0f);
+            return { 3, 2, v2KbPoint(su, sv) };
+        }
+        const auto& map = lookup();
+        auto it = map.find(vk);
+        if (it == map.end()) {
+            float su = wellU0 + (wellU1 - wellU0) * (3.5f / 8.0f);
+            float sv = wellV0 + (wellV1 - wellV0) * (1.5f / 4.0f);
+            return { 1, 3, v2KbPoint(su, sv) };
+        }
+        const VisualKeycap& cap = it->second;
+        float normU = std::clamp(1.0f - (cap.xUnits + cap.widthUnits * 0.5f), 0.0f, 1.0f);
+        int col = std::clamp((int)(normU * 7.99f), 0, 7);
+        int row = std::clamp(cap.row >= 3 ? 3 : cap.row, 0, 3);
+        if (row == 3 && col >= 2 && col <= 5) {
+            row = 2;
+        }
+        float su = wellU0 + (wellU1 - wellU0) * (((float)col + 0.5f) / 8.0f);
+        float sv = wellV0 + (wellV1 - wellV0) * (((float)row + 0.5f) / 4.0f);
+        return { row, col, v2KbPoint(su, sv) };
+    }
+
+    static Pt v2KeyCellCenter(PhysicalKey key) {
+        return v2KeyCellInfo(key).center;
     }
 
 private:

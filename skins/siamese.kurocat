@@ -1,0 +1,27 @@
+{
+ "formatVersion": 1,
+ "name": "挖煤暹罗猫",
+ "author": "KuroCat",
+ "palette": {
+  "body": "#F6EFE4",
+  "bodyShade": "#EADBC8",
+  "points": "#35261F",
+  "pointsMid": "#6A5041",
+  "legs": "#35261F",
+  "paws": "#35261F",
+  "earOuter": "#35261F",
+  "tail": "#35261F",
+  "earInner": "#5D463A",
+  "outline": "#AD96806B",
+  "crease": "#8D78678A",
+  "whiskers": "#7A63539E",
+  "nose": "#241714F2",
+  "mouth": "#C7A88F8C"
+ },
+ "shape": {
+  "build": "sleek"
+ },
+ "headSurface": "dome",
+ "idleLegs": "chest",
+ "marks": []
+}

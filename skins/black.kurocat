@@ -1,0 +1,20 @@
+{
+ "formatVersion": 1,
+ "name": "经典小黑猫",
+ "author": "KuroCat",
+ "palette": {
+  "body": "#161618",
+  "legs": "#161618",
+  "paws": "#161618",
+  "earOuter": "#161618",
+  "tail": "#161618",
+  "whiskers": "#E0E6EBAD",
+  "crease": "#D1EBE3C2"
+ },
+ "shape": {
+  "build": "standard"
+ },
+ "headSurface": "dome",
+ "idleLegs": "chest",
+ "marks": []
+}
