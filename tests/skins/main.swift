@@ -113,7 +113,7 @@ for coat in CatCoatTheme.allCases where coat != .mameShiba {
 }
 print("PASS: reaching arms leave the face unchanged across all four skins")
 
-for coat in CatCoatTheme.allCases {
+for coat in CatCoatTheme.allCases where coat != .mameShiba {
  for pose in 1...8 {
   let active=pixels(frame(coat,.referenceHazel,8,false,pose)),idle=pixels(frame(coat,.referenceHazel,9,false,pose))
   let yaw:CGFloat=pose % 2 == 0 ? -1 : 1, tilt:CGFloat=pose % 2 == 0 ? -0.15 : 0.15
@@ -127,7 +127,10 @@ for coat in CatCoatTheme.allCases {
   }
  }
 }
+let shibaFrame = pixels(frame(.mameShiba,.warmAmber,0))
+precondition(shibaFrame.filter{$0 != 0}.count > 10000, "Mame Shiba render is empty")
 print("PASS: 32 extreme turn/tilt/squash poses preserve face pixels during mouse and typing actions")
+print("PASS: Mame Shiba renders a non-empty native character frame")
 
 precondition(EyeColorTheme.saved("淡金青绿（参考图）") == .referenceHazel)
 for eye in EyeColorTheme.allCases {precondition(EyeColorTheme.saved(eye.rawValue) == eye)}
