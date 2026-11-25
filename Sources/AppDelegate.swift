@@ -312,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .siamese: coatTitle = "Siamese Cat"
                 case .shorthair: coatTitle = "Silver Tabby Shorthair"
                 case .orangeWhite: coatTitle = "Orange & White Cat"
+                case .mameShiba: coatTitle = "Mame Shiba Dog 🐕"
                 }
             } else {
                 coatTitle = coat.rawValue
@@ -355,7 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             deleteParent.submenu = deleteMenu
             coatMenu.addItem(deleteParent)
         }
-        let coatParent = NSMenuItem(title: tr("猫咪皮肤 🐱", "Cat Skin 🐱"), action: nil, keyEquivalent: "")
+        let coatParent = NSMenuItem(title: tr("宠物形象 🐾", "Pet Character 🐾"), action: nil, keyEquivalent: "")
         coatParent.submenu = coatMenu
         menu.addItem(coatParent)
 
@@ -684,6 +685,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .shorthair:
             CatSettings.shared.eyeTheme = .referenceHazel
         case .orangeWhite:
+            CatSettings.shared.eyeTheme = .warmAmber
+        case .mameShiba:
             CatSettings.shared.eyeTheme = .warmAmber
         }
         dressingRoom?.refresh()
