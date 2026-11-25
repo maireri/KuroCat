@@ -273,9 +273,9 @@ private:
                          PointF(seatX+78,seatY-83+wag), PointF(seatX+58,seatY-78+wag));
         }
         SolidBrush body(orange), bib(cream), shade(Color(34,0,0,0));
-        g.FillEllipse(&shade, seatX-49, seatY-54, 98, 72);
-        g.FillEllipse(&body, seatX-47, seatY-91+breath, 94, 112);
-        g.FillEllipse(&bib, seatX-26, seatY-77+breath, 52, 91);
+        g.FillEllipse(&shade, RectF(seatX-49.0f, seatY-54.0f, 98.0f, 72.0f));
+        g.FillEllipse(&body, RectF(seatX-47.0f, seatY-91.0f+breath, 94.0f, 112.0f));
+        g.FillEllipse(&bib, RectF(seatX-26.0f, seatY-77.0f+breath, 52.0f, 91.0f));
 
         // Small forelegs move with the original paw springs.
         Pt pawL=physics.leftPaw.point(), pawR=physics.rightPaw.point();
@@ -285,8 +285,8 @@ private:
             float restPX = i==0 ? CatPhysics::LeftPawRest.x : CatPhysics::RightPawRest.x;
             float y = seatY + (paws[i].y-235.0f)*0.38f;
             float x = restX + (paws[i].x-restPX)*0.65f;
-            g.FillEllipse(&body, x-10, seatY-45, 20, std::max(28.0f,y-seatY+52));
-            g.FillEllipse(&bib, x-9, y-8, 18, 13);
+            g.FillEllipse(&body, RectF(x-10.0f, seatY-45.0f, 20.0f, std::max(28.0f,y-seatY+52.0f)));
+            g.FillEllipse(&bib, RectF(x-9.0f, y-8.0f, 18.0f, 13.0f));
         }
 
         GraphicsState st=g.Save();
@@ -308,10 +308,10 @@ private:
         }
         g.FillEllipse(&body,-44,-37,88,77);
         Pen faceOutline(outline,1.5f); g.DrawEllipse(&faceOutline,-44,-37,88,77);
-        g.FillEllipse(&bib,-34,-3,29,25); g.FillEllipse(&bib,5,-3,29,25); g.FillEllipse(&bib,-18,5,36,22);
+        g.FillEllipse(&bib, RectF(-34.0f,-3.0f,29.0f,25.0f)); g.FillEllipse(&bib, RectF(5.0f,-3.0f,29.0f,25.0f)); g.FillEllipse(&bib, RectF(-18.0f,5.0f,36.0f,22.0f));
 
         // Dark expressive eyes with the shared blink / petting response.
-        float closed=physics.effectiveEyeClosure;
+        float closed=physics.effectiveEyeClosure();
         SolidBrush eye(deep), white(Color(255,255,255,255));
         Pen blink(deep,2.2f); blink.SetStartCap(LineCapRound); blink.SetEndCap(LineCapRound);
         for(float sign : {-1.0f,1.0f}) {
@@ -320,8 +320,8 @@ private:
                 GraphicsPath lid; addQuadBezier(lid,{x-5,-5},{x,-1},{x+5,-5}); g.DrawPath(&blink,&lid);
             } else {
                 float h=7.0f*(1.0f-closed*0.75f);
-                g.FillEllipse(&eye,x-3.1f,-8-h*0.5f,6.2f,h);
-                g.FillEllipse(&white,x-1.5f,-9,1.8f,1.8f);
+                g.FillEllipse(&eye, RectF(x-3.1f,-8.0f-h*0.5f,6.2f,h));
+                g.FillEllipse(&white, RectF(x-1.5f,-9.0f,1.8f,1.8f));
             }
         }
         SolidBrush nose(Color(255,73,51,42));
