@@ -61,6 +61,14 @@ public:
         // 2. Mini 65% Mechanical Keyboard (facing cat) + Backlit Glow
         drawKeyboard(g, physics, settings.keyboardTheme, settings.eyeTheme, settings.showKeyLegends);
 
+        // Independent Shiba character, sharing the existing physics and desktop interactions.
+        if (settings.coatTheme == CatCoatTheme::MameShiba) {
+            drawMameShiba(g, seatX, seatY, physics);
+            if (!physics.floatingKeycaps.empty()) drawFloatingKeycaps(g, physics);
+            drawSparkles(g, physics, settings.eyeTheme);
+            return;
+        }
+
         // 3. Tail
         drawTail(g, seatX, seatY, physics, settings.coatTheme);
 
@@ -242,6 +250,90 @@ private:
         float mt = 1.0f - t;
         return { 2.0f * mt * (p1.x - p0.x) + 2.0f * t * (p2.x - p1.x),
                  2.0f * mt * (p1.y - p0.y) + 2.0f * t * (p2.y - p1.y) };
+    }
+
+    // MARK: - Mame Shiba (native KuroCat vector style)
+    static void drawMameShiba(Gdiplus::Graphics& g, float seatX, float seatY, const CatPhysics& physics) {
+        using namespace Gdiplus;
+        const Color orange(255, 201, 130, 63), deep(255, 150, 90, 45);
+        const Color cream(255, 247, 233, 210), outline(220, 117, 74, 45);
+        const Color innerEar(255, 185, 111, 84);
+        float breath = std::sin(physics.time * 2.1f) * 1.4f;
+        Pt head{seatX + physics.bodyTilt.value * 30.0f + physics.headYaw.value * 6.0f,
+                126.0f + physics.headOffsetY.value + physics.headPitch.value * 4.2f + breath};
+        float wag = std::sin(physics.tailPhase) * 3.0f;
+
+        // Curled tail behind the compact seated body.
+        {
+            Pen shadow(deep, 12.0f); shadow.SetStartCap(LineCapRound); shadow.SetEndCap(LineCapRound);
+            g.DrawBezier(&shadow, PointF(seatX+34,seatY-42), PointF(seatX+72,seatY-35),
+                         PointF(seatX+78,seatY-83+wag), PointF(seatX+58,seatY-78+wag));
+            Pen fur(orange, 7.5f); fur.SetStartCap(LineCapRound); fur.SetEndCap(LineCapRound);
+            g.DrawBezier(&fur, PointF(seatX+34,seatY-42), PointF(seatX+72,seatY-35),
+                         PointF(seatX+78,seatY-83+wag), PointF(seatX+58,seatY-78+wag));
+        }
+        SolidBrush body(orange), bib(cream), shade(Color(34,0,0,0));
+        g.FillEllipse(&shade, seatX-49, seatY-54, 98, 72);
+        g.FillEllipse(&body, seatX-47, seatY-91+breath, 94, 112);
+        g.FillEllipse(&bib, seatX-26, seatY-77+breath, 52, 91);
+
+        // Small forelegs move with the original paw springs.
+        Pt pawL=physics.leftPaw.point(), pawR=physics.rightPaw.point();
+        Pt paws[2]={pawL,pawR};
+        for(int i=0;i<2;++i) {
+            float restX = i==0 ? seatX-20.0f : seatX+20.0f;
+            float restPX = i==0 ? CatPhysics::LeftPawRest.x : CatPhysics::RightPawRest.x;
+            float y = seatY + (paws[i].y-235.0f)*0.38f;
+            float x = restX + (paws[i].x-restPX)*0.65f;
+            g.FillEllipse(&body, x-10, seatY-45, 20, std::max(28.0f,y-seatY+52));
+            g.FillEllipse(&bib, x-9, y-8, 18, 13);
+        }
+
+        GraphicsState st=g.Save();
+        g.TranslateTransform(head.x,head.y);
+        g.RotateTransform(physics.headTilt.value*RadToDeg);
+        // Rounded triangular upright Shiba ears with warm inner-ear patches.
+        for(float sign : {-1.0f,1.0f}) {
+            GraphicsPath ear;
+            ear.AddBezier(PointF(sign*17,-25),PointF(sign*27,-30),PointF(sign*30,-49),PointF(sign*34,-51));
+            ear.AddBezier(PointF(sign*34,-51),PointF(sign*42,-48),PointF(sign*42,-31),PointF(sign*43,-22));
+            ear.AddBezier(PointF(sign*43,-22),PointF(sign*34,-14),PointF(sign*23,-17),PointF(sign*17,-25));
+            ear.CloseFigure();
+            SolidBrush eb(orange); Pen ep(outline,1.4f); g.FillPath(&eb,&ear); g.DrawPath(&ep,&ear);
+            GraphicsPath inner;
+            inner.AddBezier(PointF(sign*24,-27),PointF(sign*31,-30),PointF(sign*31,-40),PointF(sign*33,-43));
+            inner.AddBezier(PointF(sign*33,-43),PointF(sign*38,-40),PointF(sign*37,-32),PointF(sign*37,-27));
+            inner.CloseFigure();
+            SolidBrush ib(innerEar); g.FillPath(&ib,&inner);
+        }
+        g.FillEllipse(&body,-44,-37,88,77);
+        Pen faceOutline(outline,1.5f); g.DrawEllipse(&faceOutline,-44,-37,88,77);
+        g.FillEllipse(&bib,-34,-3,29,25); g.FillEllipse(&bib,5,-3,29,25); g.FillEllipse(&bib,-18,5,36,22);
+
+        // Dark expressive eyes with the shared blink / petting response.
+        float closed=physics.effectiveEyeClosure;
+        SolidBrush eye(deep), white(Color(255,255,255,255));
+        Pen blink(deep,2.2f); blink.SetStartCap(LineCapRound); blink.SetEndCap(LineCapRound);
+        for(float sign : {-1.0f,1.0f}) {
+            float x=sign*17.0f;
+            if(closed>0.78f) {
+                GraphicsPath lid; addQuadBezier(lid,{x-5,-5},{x,-1},{x+5,-5}); g.DrawPath(&blink,&lid);
+            } else {
+                float h=7.0f*(1.0f-closed*0.75f);
+                g.FillEllipse(&eye,x-3.1f,-8-h*0.5f,6.2f,h);
+                g.FillEllipse(&white,x-1.5f,-9,1.8f,1.8f);
+            }
+        }
+        SolidBrush nose(Color(255,73,51,42));
+        GraphicsPath np;
+        addQuadBezier(np,{-4,8},{0,5},{4,8});
+        addQuadBezier(np,{4,8},{4,13},{0,13});
+        addQuadBezier(np,{0,13},{-4,13},{-4,8}); np.CloseFigure(); g.FillPath(&nose,&np);
+        Pen mouth(outline,1.1f); mouth.SetStartCap(LineCapRound); mouth.SetEndCap(LineCapRound);
+        g.DrawLine(&mouth,0,13,0,17);
+        GraphicsPath ml; addQuadBezier(ml,{0,17},{-3,20},{-5,17}); g.DrawPath(&mouth,&ml);
+        GraphicsPath mr; addQuadBezier(mr,{0,17},{3,20},{5,17}); g.DrawPath(&mouth,&mr);
+        g.Restore(st);
     }
 
     // MARK: - Mini White Mouse (180° facing the cat)
