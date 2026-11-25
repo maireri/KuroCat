@@ -16,7 +16,8 @@ enum class CatCoatTheme : int {
     Shorthair = 2,
     OrangeWhite = 3,
     Dazed = 4,
-    Tabby = 5
+    Tabby = 5,
+    MameShiba = 6
 };
 
 enum class KeyboardTheme : int {
@@ -98,7 +99,7 @@ struct CatSettings {
         alwaysOnTop      = readDword(L"AlwaysOnTop", 1) != 0;
         runAsAdmin       = readDword(L"RunAsAdmin", 0) != 0;
         scale            = std::clamp((float)readDword(L"ScalePct", 100) / 100.0f, 0.5f, 2.0f);
-        coatTheme        = (CatCoatTheme)std::clamp((int)readDword(L"CoatTheme", 0), 0, static_cast<int>(CatCoatTheme::Tabby));
+        coatTheme        = (CatCoatTheme)std::clamp((int)readDword(L"CoatTheme", 0), 0, static_cast<int>(CatCoatTheme::MameShiba));
         keyboardTheme    = (KeyboardTheme)std::clamp((int)readDword(L"KeyboardTheme", 0), 0, 2);
         eyeTheme         = (EyeColorTheme)std::clamp((int)readDword(L"EyeTheme", 0), 0, (int)EyeColorTheme::OliveGold);
         {
