@@ -82,7 +82,7 @@ for (name,coat) in [("shorthair",CatCoatTheme.shorthair),("orangeWhite",.orangeW
 }
 
 var oldFaceChanges = 0
-for coat in CatCoatTheme.allCases {
+for coat in CatCoatTheme.allCases where coat != .mameShiba {
  let active = pixels(frame(coat,.softAmber,8)), idle = pixels(frame(coat,.softAmber,9))
  let oldActive = pixels(frame(coat,.softAmber,8,true)), oldIdle = pixels(frame(coat,.softAmber,9,true))
  for y in 160..<342 {
@@ -110,7 +110,18 @@ for coat in CatCoatTheme.allCases {
   }
  }
 }
-print("PASS: 32 extreme turn/tilt/squash poses preserve face pixels during mouse and typing actions")
+// Dog anatomy is intentionally different from the feline shoulder/arm fixtures above.
+for state in [8, 9] {
+ let dog = pixels(frame(.mameShiba,.referenceHazel,state))
+ precondition(dog.filter{$0 != 0}.count > 10000, "Empty Mame Shiba render")
+}
+let dogActive = pixels(frame(.mameShiba,.referenceHazel,8))
+let dogIdle = pixels(frame(.mameShiba,.referenceHazel,9))
+for y in 300..<490 { for x in 260..<460 {
+ let i=(y*720+x)*4
+ precondition(Array(dogActive[i..<i+4]) == Array(dogIdle[i..<i+4]), "Mame Shiba face changes during paw movement")
+}}
+print("PASS: feline shoulder tests and Mame Shiba face stability across typing/mouse actions")
 
 precondition(EyeColorTheme.saved("淡金青绿（参考图）") == .referenceHazel)
 for eye in EyeColorTheme.allCases {precondition(EyeColorTheme.saved(eye.rawValue) == eye)}
