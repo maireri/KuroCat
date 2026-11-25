@@ -287,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.state = settings.coatTheme == coat ? .on : .off
             coatMenu.addItem(item)
         }
-        let coatParent = NSMenuItem(title: "猫咪皮肤 🐱", action: nil, keyEquivalent: "")
+        let coatParent = NSMenuItem(title: "宠物形象 🐾", action: nil, keyEquivalent: "")
         coatParent.submenu = coatMenu
         menu.addItem(coatParent)
 
@@ -476,6 +476,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             CatSettings.shared.eyeTheme = .siameseBlue
         case .shorthair, .orangeWhite:
             CatSettings.shared.eyeTheme = .softAmber
+        case .mameShiba:
+            CatSettings.shared.eyeTheme = .warmAmber
         }
     }
 
